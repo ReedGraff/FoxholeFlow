@@ -410,6 +410,27 @@
     .info-popover .stat-row .v.red { color:#ff7b72; }
 
     /* rubber-band handled in SVG */
+
+    /* ── SHARE DROPDOWN ────────────────────────────────────────── */
+    .share-wrap { position:relative; }
+    #share-menu {
+      position:absolute; top:calc(100% + 4px); left:0; z-index:4000;
+      display:none; background:#161b22; border:1px solid #30363d;
+      border-radius:8px; box-shadow:0 8px 32px rgba(0,0,0,.7);
+      min-width:200px; padding:4px 0; font-size:11px;
+    }
+    #share-menu.visible { display:block; }
+    .share-item {
+      display:flex; align-items:center; gap:8px;
+      padding:7px 14px; cursor:pointer; color:#c9d1d9;
+      transition:background .08s; white-space:nowrap;
+    }
+    .share-item:hover { background:#21262d; }
+    .share-item .icon { font-size:13px; width:16px; text-align:center; flex-shrink:0; }
+    .share-sep { height:1px; background:#30363d; margin:4px 0; }
+    .share-note {
+      padding:5px 14px; font-size:9px; color:#6e7681; line-height:1.4;
+    }
   </style>
 </head>
 <body>
@@ -422,7 +443,15 @@
   <div class="tb-sep"></div>
   <button class="tb-btn accent" id="btn-add-node">+ Add Node</button>
   <div class="tb-sep"></div>
-  <button class="tb-btn primary" id="btn-save">Export</button>
+  <div class="share-wrap">
+    <button class="tb-btn primary" id="btn-share">Share ▾</button>
+    <div id="share-menu">
+      <div class="share-item" id="share-link"><span class="icon">🔗</span> Copy Share Link</div>
+      <div class="share-sep"></div>
+      <div class="share-item" id="share-export"><span class="icon">💾</span> Export JSON File</div>
+      <div id="share-note" class="share-note" style="display:none"></div>
+    </div>
+  </div>
   <button class="tb-btn" id="btn-load">Import</button>
   <button class="tb-btn" id="btn-auto-layout">Auto Layout</button>
   <button class="tb-btn" id="btn-reset">Reset View</button>
@@ -2917,6 +2946,214 @@ function closeAllPopups() {
   document.getElementById('add-node-popup').classList.remove('visible');
   document.getElementById('edge-popup').classList.remove('visible');
   document.getElementById('resolver').classList.remove('visible');
+  document.getElementById('share-menu').classList.remove('visible');
+}
+
+// ═══════════════════════════════════════════════════════════════
+// SHARE LINK — compress state into URL fragment
+// ═══════════════════════════════════════════════════════════════
+
+const SHARE_URL_TARGET = 8000;
+
+async function compressToBase64url(str) {
+  const bytes = new TextEncoder().encode(str);
+  const cs = new CompressionStream('deflate-raw');
+  const writer = cs.writable.getWriter();
+  writer.write(bytes);
+  writer.close();
+  const chunks = [];
+  const reader = cs.readable.getReader();
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    chunks.push(value);
+  }
+  const totalLen = chunks.reduce((s, c) => s + c.length, 0);
+  const compressed = new Uint8Array(totalLen);
+  let offset = 0;
+  for (const c of chunks) { compressed.set(c, offset); offset += c.length; }
+  let b64 = '';
+  for (let i = 0; i < compressed.length; i += 2048) {
+    b64 += String.fromCharCode(...compressed.subarray(i, i + 2048));
+  }
+  return btoa(b64).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
+}
+
+async function decompressFromBase64url(encoded) {
+  const b64 = encoded.replace(/-/g,'+').replace(/_/g,'/');
+  const binStr = atob(b64);
+  const bytes = new Uint8Array(binStr.length);
+  for (let i = 0; i < binStr.length; i++) bytes[i] = binStr.charCodeAt(i);
+  const ds = new DecompressionStream('deflate-raw');
+  const writer = ds.writable.getWriter();
+  writer.write(bytes);
+  writer.close();
+  const chunks = [];
+  const reader = ds.readable.getReader();
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    chunks.push(value);
+  }
+  const totalLen = chunks.reduce((s, c) => s + c.length, 0);
+  const all = new Uint8Array(totalLen);
+  let off = 0;
+  for (const c of chunks) { all.set(c, off); off += c.length; }
+  return new TextDecoder().decode(all);
+}
+
+function buildShareState(includePositions) {
+  const dict = [];
+  const dictMap = {};
+  function d(s) {
+    if (s == null) return -1;
+    if (s in dictMap) return dictMap[s];
+    const idx = dict.length;
+    dict.push(s);
+    dictMap[s] = idx;
+    return idx;
+  }
+
+  const TYPE_MAP = { production: 0, output: 1, input: 2 };
+  const DRIVE_MAP = { demand: 0, capacity: 1 };
+  const MODE_MAP = { auto: 0, manual: 1, byproduct: 2 };
+
+  const nodes = [];
+  for (const n of Object.values(appState.nodes)) {
+    const nid = parseInt(n.id.slice(1));
+    if (n.type === 'production') {
+      const a = [nid, 0, d(n.recipeId), n.queues, DRIVE_MAP[n.driveMode] || 0, n.fixedFacilities];
+      if (includePositions) a.push(Math.round(n.pos.x), Math.round(n.pos.y));
+      nodes.push(a);
+    } else if (n.type === 'output') {
+      const a = [nid, 1, d(n.materialKey), n.desiredAmount, n.intervalSec];
+      if (includePositions) a.push(Math.round(n.pos.x), Math.round(n.pos.y));
+      nodes.push(a);
+    } else if (n.type === 'input') {
+      const a = [nid, 2, d(n.materialKey), n.supplyAmount, n.intervalSec];
+      if (includePositions) a.push(Math.round(n.pos.x), Math.round(n.pos.y));
+      nodes.push(a);
+    }
+  }
+
+  const edges = [];
+  for (const e of Object.values(appState.edges)) {
+    edges.push([
+      parseInt(e.id.slice(1)),
+      parseInt(e.fromNode.slice(1)), d(e.fromMaterial),
+      parseInt(e.toNode.slice(1)), d(e.toMaterial),
+      e.flowPerInterval, e.intervalSec,
+      MODE_MAP[e.mode] || 0,
+    ]);
+  }
+
+  return JSON.stringify({ d: dict, n: nodes, e: edges, p: includePositions ? 1 : 0 });
+}
+
+function loadShareState(json) {
+  const s = JSON.parse(json);
+  const dict = s.d;
+  const TYPES = ['production', 'output', 'input'];
+  const DRIVES = ['demand', 'capacity'];
+  const MODES = ['auto', 'manual', 'byproduct'];
+  const hasPos = s.p === 1;
+
+  appState.nodes = {};
+  appState.edges = {};
+
+  for (const a of s.n) {
+    const id = `n${a[0]}`;
+    const type = TYPES[a[1]];
+    if (type === 'production') {
+      appState.nodes[id] = {
+        id, type,
+        recipeId: dict[a[2]],
+        queues: a[3],
+        driveMode: DRIVES[a[4]] || 'demand',
+        fixedFacilities: a[5],
+        pos: hasPos ? { x: a[6], y: a[7] } : { x: 0, y: 0 },
+      };
+    } else if (type === 'output') {
+      appState.nodes[id] = {
+        id, type,
+        materialKey: dict[a[2]],
+        desiredAmount: a[3],
+        intervalSec: a[4],
+        pos: hasPos ? { x: a[5], y: a[6] } : { x: 0, y: 0 },
+      };
+    } else if (type === 'input') {
+      appState.nodes[id] = {
+        id, type,
+        materialKey: dict[a[2]],
+        supplyAmount: a[3],
+        intervalSec: a[4],
+        pos: hasPos ? { x: a[5], y: a[6] } : { x: 0, y: 0 },
+      };
+    }
+  }
+
+  for (const a of s.e) {
+    const id = `e${a[0]}`;
+    appState.edges[id] = {
+      id,
+      fromNode: `n${a[1]}`, fromMaterial: dict[a[2]],
+      toNode: `n${a[3]}`, toMaterial: dict[a[4]],
+      flowPerInterval: a[5],
+      intervalSec: a[6],
+      mode: MODES[a[7]] || 'auto',
+    };
+  }
+
+  const maxN = s.n.reduce((m, a) => Math.max(m, a[0]), 0);
+  const maxE = s.e.reduce((m, a) => Math.max(m, a[0]), 0);
+  _nodeCounter = maxN;
+  _edgeCounter = maxE;
+
+  render();
+  if (!hasPos && Object.keys(appState.nodes).length > 0) {
+    autoLayout();
+    showToast('Layout imported from link (auto-arranged)');
+  } else {
+    requestAnimationFrame(() => centerView());
+    showToast('Layout imported from link!');
+  }
+}
+
+async function generateShareLink() {
+  const nodeCount = Object.keys(appState.nodes).length;
+  if (nodeCount === 0) {
+    showToast('Nothing to share — add some nodes first');
+    return null;
+  }
+
+  let withPos = await compressToBase64url(buildShareState(true));
+  let url = `${location.origin}${location.pathname}#s=${withPos}`;
+  let stripped = false;
+
+  if (url.length > SHARE_URL_TARGET) {
+    const noPos = await compressToBase64url(buildShareState(false));
+    url = `${location.origin}${location.pathname}#s=${noPos}`;
+    stripped = true;
+  }
+
+  return { url, stripped, length: url.length };
+}
+
+async function loadFromUrlFragment() {
+  const hash = location.hash;
+  if (!hash.startsWith('#s=')) return false;
+  const encoded = hash.slice(3);
+  if (!encoded) return false;
+  try {
+    const json = await decompressFromBase64url(encoded);
+    loadShareState(json);
+    history.replaceState(null, '', location.pathname + location.search);
+    return true;
+  } catch (err) {
+    console.error('Failed to load share link:', err);
+    showToast('Invalid or corrupted share link');
+    return false;
+  }
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -2988,7 +3225,33 @@ async function init() {
       openAddNodePopup(rect.left, rect.bottom + 4, canvasX, canvasY);
     });
 
-    document.getElementById('btn-save').addEventListener('click', saveLayout);
+    // Share dropdown
+    const shareBtn = document.getElementById('btn-share');
+    const shareMenu = document.getElementById('share-menu');
+    shareBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      shareMenu.classList.toggle('visible');
+    });
+    document.getElementById('share-export').addEventListener('click', () => {
+      shareMenu.classList.remove('visible');
+      saveLayout();
+    });
+    document.getElementById('share-link').addEventListener('click', async () => {
+      shareMenu.classList.remove('visible');
+      const result = await generateShareLink();
+      if (!result) return;
+      await navigator.clipboard.writeText(result.url);
+      const note = document.getElementById('share-note');
+      if (result.stripped) {
+        showToast(`Share link copied! (${Math.round(result.length/1000)}k chars, positions omitted — recipients will get auto-layout)`);
+      } else {
+        showToast('Share link copied to clipboard!');
+      }
+    });
+    document.addEventListener('click', (e) => {
+      if (!e.target.closest('.share-wrap')) shareMenu.classList.remove('visible');
+    });
+
     document.getElementById('btn-load').addEventListener('click', () => {
       document.getElementById('file-input').click();
     });
@@ -3042,6 +3305,9 @@ async function init() {
 
     updateTransform();
     render();
+
+    // Check for shared layout in URL fragment
+    await loadFromUrlFragment();
 
   } catch(err) {
     document.getElementById('loading').innerHTML =
