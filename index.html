@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
   <title>FoxholeFlow — Factory Planner</title>
   <style>
     *, *::before, *::after { margin:0; padding:0; box-sizing:border-box; }
@@ -12,6 +12,7 @@
     body {
       font-family:'JetBrains Mono','Fira Code','Consolas',monospace;
       background:#0d1117; color:#c9d1d9; overflow:hidden;
+      touch-action:manipulation;
     }
 
     /* ── TOOLBAR ──────────────────────────────────────────────── */
@@ -52,6 +53,7 @@
     #canvas-wrap {
       position:fixed; top:var(--tb-h); left:0; right:280px; bottom:0;
       overflow:hidden; cursor:grab;
+      touch-action:none;
     }
     #canvas-wrap.grabbing { cursor:grabbing; }
     #canvas { position:absolute; transform-origin:0 0; }
@@ -2980,6 +2982,70 @@ function onZoom(e) {
   updateTransform();
 }
 
+// ── Touch handlers (mobile pan + pinch-zoom) ────────────────
+let touchState = { active: false, mode: null, startX: 0, startY: 0, startPanX: 0, startPanY: 0, startDist: 0, startScale: 1, midX: 0, midY: 0 };
+
+function getTouchDist(t1, t2) {
+  const dx = t1.clientX - t2.clientX, dy = t1.clientY - t2.clientY;
+  return Math.sqrt(dx*dx + dy*dy);
+}
+
+function onTouchStart(e) {
+  if (e.target.closest('.node-card') || e.target.closest('#ctx-menu') ||
+      e.target.closest('#add-node-popup') || e.target.closest('#edge-popup') ||
+      e.target.closest('#summary-panel')) return;
+
+  if (e.touches.length === 1) {
+    touchState = { active: true, mode: 'pan', startX: e.touches[0].clientX, startY: e.touches[0].clientY, startPanX: panX, startPanY: panY, startDist: 0, startScale: scale, midX: 0, midY: 0 };
+  } else if (e.touches.length === 2) {
+    e.preventDefault();
+    const wrap = document.getElementById('canvas-wrap');
+    const rect = wrap.getBoundingClientRect();
+    const mx = (e.touches[0].clientX + e.touches[1].clientX) / 2 - rect.left;
+    const my = (e.touches[0].clientY + e.touches[1].clientY) / 2 - rect.top;
+    touchState = { active: true, mode: 'pinch', startX: 0, startY: 0, startPanX: panX, startPanY: panY, startDist: getTouchDist(e.touches[0], e.touches[1]), startScale: scale, midX: mx, midY: my };
+  }
+}
+
+function onTouchMove(e) {
+  if (!touchState.active) return;
+
+  if (touchState.mode === 'pan' && e.touches.length === 1) {
+    panX = touchState.startPanX + (e.touches[0].clientX - touchState.startX);
+    panY = touchState.startPanY + (e.touches[0].clientY - touchState.startY);
+    updateTransform();
+  } else if (touchState.mode === 'pinch' && e.touches.length === 2) {
+    e.preventDefault();
+    const dist = getTouchDist(e.touches[0], e.touches[1]);
+    const ratio = dist / touchState.startDist;
+    const ns = Math.max(.15, Math.min(3, touchState.startScale * ratio));
+    const mx = touchState.midX, my = touchState.midY;
+    panX = mx - (mx - touchState.startPanX) * (ns / touchState.startScale);
+    panY = my - (my - touchState.startPanY) * (ns / touchState.startScale);
+    scale = ns;
+    updateTransform();
+  }
+
+  if (e.touches.length === 1 && touchState.mode === 'pan') {
+    // Upgrade to pinch if second finger arrives
+  } else if (e.touches.length >= 2 && touchState.mode === 'pan') {
+    const wrap = document.getElementById('canvas-wrap');
+    const rect = wrap.getBoundingClientRect();
+    const mx = (e.touches[0].clientX + e.touches[1].clientX) / 2 - rect.left;
+    const my = (e.touches[0].clientY + e.touches[1].clientY) / 2 - rect.top;
+    touchState = { active: true, mode: 'pinch', startX: 0, startY: 0, startPanX: panX, startPanY: panY, startDist: getTouchDist(e.touches[0], e.touches[1]), startScale: scale, midX: mx, midY: my };
+  }
+}
+
+function onTouchEnd(e) {
+  if (e.touches.length === 0) {
+    touchState.active = false;
+    touchState.mode = null;
+  } else if (e.touches.length === 1 && touchState.mode === 'pinch') {
+    touchState = { active: true, mode: 'pan', startX: e.touches[0].clientX, startY: e.touches[0].clientY, startPanX: panX, startPanY: panY, startDist: 0, startScale: scale, midX: 0, midY: 0 };
+  }
+}
+
 function addDragHandler(card, nodeId) {
   card.addEventListener('mousedown', e => {
     if (e.target.tagName==='SELECT'||e.target.tagName==='INPUT'||
@@ -3370,6 +3436,12 @@ async function init() {
     wrap.addEventListener('mouseleave', onWrapUp);
     wrap.addEventListener('wheel', onZoom, { passive:false });
     window.addEventListener('mouseup', onWrapUp);
+
+    // Touch handlers for mobile pan + pinch-zoom
+    wrap.addEventListener('touchstart', onTouchStart, { passive:false });
+    wrap.addEventListener('touchmove', onTouchMove, { passive:false });
+    wrap.addEventListener('touchend', onTouchEnd);
+    wrap.addEventListener('touchcancel', onTouchEnd);
 
     // Right-click on canvas
     wrap.addEventListener('contextmenu', e => {
