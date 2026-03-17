@@ -1,0 +1,3056 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>FoxholeFlow — Factory Planner</title>
+  <style>
+    *, *::before, *::after { margin:0; padding:0; box-sizing:border-box; }
+    input[type=number]::-webkit-inner-spin-button,
+    input[type=number]::-webkit-outer-spin-button { -webkit-appearance:none; margin:0; }
+    input[type=number] { -moz-appearance:textfield; }
+    body {
+      font-family:'JetBrains Mono','Fira Code','Consolas',monospace;
+      background:#0d1117; color:#c9d1d9; overflow:hidden;
+    }
+
+    /* ── TOOLBAR ──────────────────────────────────────────────── */
+    #toolbar {
+      position:fixed; top:0; left:0; right:0; height:48px;
+      background:#161b22; border-bottom:1px solid #30363d;
+      display:flex; align-items:center; padding:0 14px; gap:8px; z-index:1000;
+    }
+    #toolbar h1 { font-size:13px; font-weight:700; color:#f0883e; white-space:nowrap; margin-right:4px; }
+    .tb-sep { width:1px; height:24px; background:#30363d; }
+    .tb-label { font-size:10px; color:#6e7681; white-space:nowrap; }
+    .tb-select, .tb-number, .tb-input {
+      background:#21262d; border:1px solid #30363d; color:#c9d1d9;
+      border-radius:5px; font-size:11px; font-family:inherit; height:28px;
+      padding:0 7px;
+    }
+    .tb-select:focus, .tb-number:focus { outline:none; border-color:#58a6ff; }
+    .tb-select { max-width:240px; cursor:pointer; }
+    .tb-number { width:60px; text-align:center; }
+    .tb-btn {
+      background:#21262d; border:1px solid #30363d; color:#c9d1d9;
+      padding:0 11px; border-radius:5px; cursor:pointer; font-size:11px;
+      font-family:inherit; height:28px; white-space:nowrap;
+      transition:background .1s, border-color .1s;
+    }
+    .tb-btn:hover { background:#30363d; border-color:#8b949e; }
+    .tb-btn.primary { background:#238636; border-color:#238636; color:#fff; }
+    .tb-btn.primary:hover { background:#2ea043; }
+    .tb-btn.accent { background:#1f6feb; border-color:#1f6feb; color:#fff; }
+    .tb-btn.accent:hover { background:#388bfd; }
+    .tb-btn.danger { background:#21262d; border-color:#ff7b7260; color:#ff7b72; }
+    .tb-btn.danger:hover { background:#3d1a1a; }
+    #tb-status { margin-left:auto; font-size:10px; color:#6e7681; }
+
+    /* ── CANVAS ───────────────────────────────────────────────── */
+    #canvas-wrap {
+      position:fixed; top:48px; left:0; right:280px; bottom:0;
+      overflow:hidden; cursor:grab;
+    }
+    #canvas-wrap.grabbing { cursor:grabbing; }
+    #canvas { position:absolute; transform-origin:0 0; }
+    #svg-edges { position:absolute; top:0; left:0; overflow:visible; pointer-events:none; }
+    #svg-edges .edge-hit { pointer-events:stroke; cursor:pointer; }
+
+    /* ── NODE CARDS ───────────────────────────────────────────── */
+    .node-card {
+      position:absolute; width:320px;
+      background:#161b22; border:1px solid #30363d; border-radius:8px;
+      box-shadow:0 4px 20px rgba(0,0,0,.5);
+      user-select:none; cursor:move; overflow:visible;
+    }
+    .node-card:hover { border-color:#444d56; }
+    .node-card.type-output   { border-color:#f0883e66; }
+    .node-card.type-output:hover { border-color:#f0883e; }
+    .node-card.type-input    { border-color:#3fb95066; }
+    .node-card.type-input:hover  { border-color:#3fb950; }
+
+    .node-header {
+      padding:8px 10px 7px; border-radius:7px 7px 0 0;
+      border-bottom:1px solid #21262d;
+    }
+    .type-output .node-header     { background:linear-gradient(135deg,#2a1f0e,#21262d); }
+    .type-production .node-header { background:#21262d; }
+    .type-input .node-header      { background:linear-gradient(135deg,#0e2a12,#21262d); }
+    .node-title { font-size:11px; font-weight:700; color:#f0f6fc; line-height:1.4; text-transform:uppercase; letter-spacing:.4px; }
+    .type-output .node-title { color:#f0883e; }
+    .type-input .node-title  { color:#3fb950; }
+    .node-subtitle { font-size:10px; color:#8b949e; margin-top:1px; }
+    .node-upg-name { font-size:10px; color:#58a6ff; }
+
+    .node-controls {
+      padding:5px 10px; background:#0d1117;
+      border-bottom:1px solid #21262d;
+      display:flex; align-items:center; gap:6px; flex-wrap:wrap;
+    }
+    .node-controls .label { font-size:9px; color:#6e7681; white-space:nowrap; }
+    .node-ctrl-input {
+      background:#21262d; border:1px solid #30363d;
+      color:#c9d1d9; font-size:9px; font-family:inherit;
+      border-radius:3px; padding:2px 4px; min-width:0; width:50px; text-align:center;
+    }
+    .node-ctrl-input:focus { outline:none; border-color:#58a6ff; }
+    .node-ctrl-select {
+      flex:1; background:#21262d; border:1px solid #30363d;
+      color:#c9d1d9; font-size:9px; font-family:inherit;
+      border-radius:3px; padding:2px 4px; cursor:pointer; min-width:0;
+    }
+    .node-ctrl-select:focus { outline:none; border-color:#58a6ff; }
+
+    .section-label {
+      font-size:9px; font-weight:600; color:#6e7681;
+      text-transform:uppercase; letter-spacing:.5px;
+      padding:5px 10px 3px; background:#0d1117;
+    }
+
+    /* Port rows */
+    .port-row {
+      display:flex; align-items:center; gap:5px;
+      padding:4px 10px;
+      border-bottom:1px solid #1a1f27; position:relative;
+      min-height:26px;
+    }
+    .port-row:last-child { border-bottom:none; }
+    .port-row.input-side  { padding-left:20px; }
+    .port-row.output-side { padding-right:20px; }
+    .port-row:hover { background:#1c2128; }
+
+    .port-dot {
+      position:absolute; top:50%; transform:translateY(-50%);
+      width:9px; height:9px; border-radius:50%;
+      border:1.5px solid currentColor; background:#0d1117;
+      flex-shrink:0; z-index:10; cursor:pointer;
+    }
+    .port-dot.left  { left:5px; }
+    .port-dot.right { right:5px; }
+    .port-dot.unresolved { color:#ff7b72; }
+    .port-dot.connected  { color:#58a6ff; }
+    .port-dot.source     { color:#3fb950; }
+    .port-dot.byproduct  { color:#f0883e; }
+    .port-dot.output-port { color:#f0883e; }
+
+    .port-qty { font-size:10px; font-weight:600; white-space:nowrap; }
+    .port-qty.in  { color:#79c0ff; }
+    .port-qty.out { color:#7ee787; }
+    .port-qty.bp  { color:#f0883e; }
+    .port-mat { font-size:10px; color:#c9d1d9; flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+    .port-info { font-size:9px; color:#6e7681; white-space:nowrap; }
+
+    .btn-disconnect {
+      font-size:9px; color:#ff7b7280; cursor:pointer; padding:1px 3px;
+      border-radius:2px; border:none; background:transparent; flex-shrink:0;
+    }
+    .btn-disconnect:hover { color:#ff7b72; background:#3d1a1a22; }
+
+    /* Stats footer */
+    .node-stats {
+      padding:6px 10px; background:#0d1117; border-top:1px solid #21262d;
+      border-radius:0 0 7px 7px;
+    }
+    .stat-row { display:flex; justify-content:space-between; font-size:9px; margin-bottom:2px; color:#6e7681; }
+    .stat-row:last-child { margin-bottom:0; }
+    .stat-row .v { color:#c9d1d9; font-weight:600; }
+    .stat-row .v.green { color:#7ee787; }
+    .stat-row .v.amber { color:#f0883e; }
+    .stat-row .v.red   { color:#ff7b72; }
+    .stat-row .v.blue  { color:#79c0ff; }
+    .facilities-badge {
+      background:#1f6feb22; border:1px solid #1f6feb44;
+      border-radius:3px; padding:1px 5px;
+      font-size:9px; font-weight:700; color:#79c0ff;
+    }
+
+    /* ── RESOLVER POPUP ───────────────────────────────────────── */
+    #resolver {
+      position:fixed; z-index:3000;
+      background:#161b22; border:1px solid #30363d; border-radius:8px;
+      box-shadow:0 8px 32px rgba(0,0,0,.6); min-width:300px; max-width:380px;
+      display:none;
+    }
+    #resolver.visible { display:block; }
+    .resolver-header {
+      padding:9px 12px; border-bottom:1px solid #30363d;
+      display:flex; align-items:center; justify-content:space-between;
+    }
+    .resolver-title { font-size:11px; font-weight:600; color:#f0f6fc; }
+    .resolver-subtitle { font-size:9px; color:#6e7681; margin-top:1px; }
+    .resolver-close {
+      background:none; border:none; color:#6e7681; cursor:pointer;
+      font-size:16px; line-height:1; padding:0 4px; border-radius:3px;
+    }
+    .resolver-close:hover { background:#30363d; color:#f0f6fc; }
+    .resolver-body { max-height:400px; overflow-y:auto; padding:8px; }
+    .resolver-body::-webkit-scrollbar { width:3px; }
+    .resolver-body::-webkit-scrollbar-thumb { background:#30363d; }
+    .resolver-section { margin-bottom:8px; }
+    .resolver-section:last-child { margin-bottom:0; }
+    .resolver-sec-label {
+      font-size:9px; font-weight:600; color:#58a6ff;
+      text-transform:uppercase; letter-spacing:.5px;
+      margin-bottom:5px; padding:0 2px;
+    }
+    .resolver-opt {
+      background:#21262d; border:1px solid #30363d; border-radius:5px;
+      padding:7px 10px; margin-bottom:4px; cursor:pointer;
+      transition:background .1s, border-color .1s;
+    }
+    .resolver-opt:last-child { margin-bottom:0; }
+    .resolver-opt:hover { background:#2d333b; border-color:#58a6ff; }
+    .resolver-opt.collected { border-color:#3fb95044; }
+    .resolver-opt.collected:hover { background:#0e1f12; border-color:#3fb950; }
+    .resolver-opt-title { font-size:10px; font-weight:600; color:#c9d1d9; }
+    .resolver-opt.collected .resolver-opt-title { color:#7ee787; }
+    .resolver-opt-sub { font-size:9px; color:#6e7681; margin-top:2px; }
+
+    /* ── CONTEXT MENU ──────────────────────────────────────────── */
+    #ctx-menu {
+      position:fixed; z-index:4000; display:none;
+      background:#161b22; border:1px solid #30363d; border-radius:8px;
+      box-shadow:0 8px 32px rgba(0,0,0,.7); min-width:200px;
+      padding:4px 0; font-size:11px;
+    }
+    #ctx-menu.visible { display:block; }
+    .ctx-item {
+      display:flex; align-items:center; gap:8px;
+      padding:7px 14px; cursor:pointer; color:#c9d1d9;
+      transition:background .08s;
+    }
+    .ctx-item:hover { background:#21262d; }
+    .ctx-item .icon { font-size:13px; width:16px; text-align:center; flex-shrink:0; }
+    .ctx-item.danger { color:#ff7b72; }
+    .ctx-sep { height:1px; background:#30363d; margin:4px 0; }
+    .ctx-label {
+      padding:4px 14px 2px; font-size:9px; color:#6e7681;
+      text-transform:uppercase; letter-spacing:.5px; font-weight:600;
+    }
+
+    /* ── ADD NODE POPUP ────────────────────────────────────────── */
+    #add-node-popup {
+      position:fixed; z-index:3500; display:none;
+      background:#161b22; border:1px solid #30363d; border-radius:10px;
+      box-shadow:0 12px 40px rgba(0,0,0,.7);
+      width:400px; max-height:500px; overflow:hidden;
+    }
+    #add-node-popup.visible { display:flex; flex-direction:column; }
+    .anp-header {
+      padding:10px 14px; border-bottom:1px solid #30363d;
+      display:flex; align-items:center; gap:8px;
+    }
+    .anp-search {
+      flex:1; background:#21262d; border:1px solid #30363d;
+      color:#c9d1d9; font-size:12px; font-family:inherit;
+      border-radius:5px; padding:6px 10px;
+    }
+    .anp-search:focus { outline:none; border-color:#58a6ff; }
+    .anp-close {
+      background:none; border:none; color:#6e7681; cursor:pointer;
+      font-size:16px; line-height:1; padding:0 4px; border-radius:3px;
+    }
+    .anp-close:hover { background:#30363d; color:#f0f6fc; }
+    .anp-tabs {
+      display:flex; border-bottom:1px solid #30363d;
+    }
+    .anp-tab {
+      flex:1; padding:6px 12px; font-size:10px; text-align:center;
+      cursor:pointer; color:#6e7681; border-bottom:2px solid transparent;
+      transition: color .1s, border-color .1s;
+    }
+    .anp-tab:hover { color:#c9d1d9; }
+    .anp-tab.active { color:#58a6ff; border-bottom-color:#58a6ff; }
+    .anp-body { flex:1; overflow-y:auto; padding:6px; max-height:380px; }
+    .anp-body::-webkit-scrollbar { width:4px; }
+    .anp-body::-webkit-scrollbar-thumb { background:#30363d; }
+    .anp-opt {
+      background:#21262d; border:1px solid #30363d; border-radius:5px;
+      padding:7px 10px; margin-bottom:4px; cursor:pointer;
+      transition:background .1s, border-color .1s;
+    }
+    .anp-opt:hover { background:#2d333b; border-color:#58a6ff; }
+    .anp-opt-title { font-size:10px; font-weight:600; color:#c9d1d9; }
+    .anp-opt-sub { font-size:9px; color:#6e7681; margin-top:2px; }
+
+    /* ── EDGE FLOW POPUP ───────────────────────────────────────── */
+    #edge-popup {
+      position:fixed; z-index:3000; display:none;
+      background:#161b22; border:1px solid #30363d; border-radius:8px;
+      box-shadow:0 8px 32px rgba(0,0,0,.6); width:280px; padding:12px;
+    }
+    #edge-popup.visible { display:block; }
+    .ep-title { font-size:11px; font-weight:600; color:#f0f6fc; margin-bottom:8px; }
+    .ep-row { display:flex; align-items:center; gap:6px; margin-bottom:6px; }
+    .ep-row .label { font-size:9px; color:#6e7681; white-space:nowrap; min-width:80px; }
+    .ep-input {
+      flex:1; background:#21262d; border:1px solid #30363d;
+      color:#c9d1d9; font-size:10px; font-family:inherit;
+      border-radius:3px; padding:3px 6px; text-align:center;
+    }
+    .ep-input:focus { outline:none; border-color:#58a6ff; }
+    .ep-btns { display:flex; gap:6px; margin-top:8px; }
+    .ep-btn {
+      flex:1; background:#238636; border:none; color:#fff;
+      padding:5px 8px; border-radius:4px; cursor:pointer; font-size:10px;
+      font-family:inherit;
+    }
+    .ep-btn:hover { background:#2ea043; }
+    .ep-btn.cancel { background:#21262d; color:#c9d1d9; border:1px solid #30363d; }
+    .ep-btn.cancel:hover { background:#30363d; }
+
+    /* ── SUMMARY PANEL ────────────────────────────────────────── */
+    #summary-panel {
+      position:fixed; top:48px; right:0; width:280px; bottom:0;
+      background:#161b22; border-left:1px solid #30363d;
+      display:flex; flex-direction:column; overflow:hidden; z-index:500;
+    }
+    .sum-header {
+      padding:9px 14px 8px; border-bottom:1px solid #30363d;
+      font-size:11px; font-weight:600; color:#f0f6fc; flex-shrink:0;
+    }
+    .sum-body { flex:1; overflow-y:auto; padding:10px 12px; }
+    .sum-body::-webkit-scrollbar { width:4px; }
+    .sum-body::-webkit-scrollbar-thumb { background:#30363d; border-radius:2px; }
+    .sum-sec { font-size:9px; font-weight:600; color:#58a6ff; text-transform:uppercase; letter-spacing:.5px; margin:10px 0 5px; }
+    .sum-sec:first-child { margin-top:0; }
+    .sum-row { display:flex; justify-content:space-between; align-items:baseline; font-size:10px; margin-bottom:3px; padding-bottom:3px; border-bottom:1px solid #1c2128; }
+    .sum-row:last-child { border-bottom:none; }
+    .sum-name { color:#8b949e; flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; padding-right:6px; }
+    .sum-val { color:#c9d1d9; font-weight:600; white-space:nowrap; }
+    .sum-val.green { color:#7ee787; }
+    .sum-val.amber { color:#f0883e; }
+    .sum-val.red   { color:#ff7b72; }
+    .sum-empty { font-size:11px; color:#6e7681; text-align:center; padding:24px 0; }
+
+    .sum-legend { padding:10px 12px; border-top:1px solid #30363d; flex-shrink:0; }
+    .leg-title { font-size:9px; font-weight:600; color:#58a6ff; text-transform:uppercase; letter-spacing:.5px; margin-bottom:5px; }
+    .leg-row { display:flex; align-items:center; gap:7px; font-size:9px; color:#8b949e; margin-bottom:3px; }
+    .leg-dot { width:8px; height:8px; border-radius:50%; border:1.5px solid; background:#0d1117; flex-shrink:0; }
+    .leg-line { width:20px; height:2px; flex-shrink:0; }
+
+    /* ── MISC ──────────────────────────────────────────────────── */
+    #zoom-indicator {
+      position:fixed; bottom:10px; left:10px;
+      background:#21262d; border:1px solid #30363d;
+      padding:3px 9px; border-radius:4px; font-size:10px; color:#6e7681; z-index:600;
+    }
+    #loading {
+      position:fixed; inset:0; background:#0d1117;
+      display:flex; flex-direction:column; align-items:center; justify-content:center;
+      gap:14px; z-index:9999; font-size:13px; color:#8b949e;
+    }
+    .spinner { width:30px; height:30px; border:3px solid #30363d; border-top-color:#f0883e; border-radius:50%; animation:spin .7s linear infinite; }
+    @keyframes spin { to { transform:rotate(360deg); } }
+    #toast {
+      position:fixed; bottom:16px; left:50%;
+      transform:translateX(-50%) translateY(80px); opacity:0;
+      background:#238636; color:#fff; padding:10px 20px;
+      border-radius:6px; font-size:12px; z-index:5000; transition:all .25s;
+    }
+    #toast.show { transform:translateX(-50%) translateY(0); opacity:1; }
+
+    /* ── HOVER TRACE (dim/highlight) ────────────────────────────── */
+    .node-card.dimmed { opacity:0.15; filter:saturate(0.2); transition:opacity .15s, filter .15s; }
+    .node-card.highlighted { border-color:#58a6ff !important; box-shadow:0 0 12px rgba(88,166,255,.3); transition:box-shadow .15s; }
+    .port-row.trace-highlight { background:#1f6feb18 !important; }
+    .port-row.trace-dim { opacity:0.3; }
+    #svg-edges .edge-path.dimmed { opacity:0.06 !important; }
+    #svg-edges .edge-path.highlighted { opacity:1 !important; stroke-width:2.5; }
+    #svg-edges .edge-label.dimmed { opacity:0.06 !important; }
+
+    /* ── PRODUCTION CONTROLS ────────────────────────────────── */
+    .prod-controls {
+      padding:5px 10px; background:#0d1117;
+      border-bottom:1px solid #21262d;
+      display:flex; align-items:center; gap:4px;
+      font-size:9px; color:#6e7681;
+    }
+    .prod-controls .pc-label { font-size:8px; color:#6e7681; white-space:nowrap; }
+    .prod-controls .pc-input {
+      background:#21262d; border:1px solid #30363d;
+      color:#c9d1d9; font-size:9px; font-family:inherit;
+      border-radius:3px; padding:2px 4px; width:36px; text-align:center;
+    }
+    .prod-controls .pc-input:focus { outline:none; border-color:#58a6ff; }
+    .prod-controls .pc-input.computed {
+      border-color:#1f6feb44; color:#79c0ff; background:#1f6feb11;
+    }
+    .prod-controls .pc-select {
+      background:#21262d; border:1px solid #30363d; color:#c9d1d9;
+      font-size:8px; font-family:inherit; border-radius:3px; padding:1px 2px;
+      cursor:pointer;
+    }
+    .prod-controls .pc-select:focus { outline:none; border-color:#58a6ff; }
+    .prod-controls .pc-val {
+      font-size:9px; font-weight:600; color:#7ee787; white-space:nowrap;
+    }
+    .prod-controls .pc-sep { color:#30363d; }
+
+    /* ── INFO POPOVER ────────────────────────────────────────── */
+    .info-icon {
+      display:inline-flex; align-items:center; justify-content:center;
+      width:14px; height:14px; border-radius:50%;
+      border:1px solid #30363d; color:#6e7681; font-size:8px;
+      cursor:pointer; flex-shrink:0; margin-left:auto;
+      font-style:italic; font-weight:700; font-family:serif;
+    }
+    .info-icon:hover { background:#21262d; color:#c9d1d9; }
+    .info-popover {
+      position:absolute; z-index:100; right:10px; top:100%;
+      background:#161b22; border:1px solid #30363d; border-radius:6px;
+      box-shadow:0 6px 24px rgba(0,0,0,.5); padding:8px 10px;
+      min-width:200px; display:none; font-size:9px;
+    }
+    .info-popover.visible { display:block; }
+    .info-popover .stat-row { display:flex; justify-content:space-between; margin-bottom:2px; color:#6e7681; }
+    .info-popover .stat-row .v { color:#c9d1d9; font-weight:600; }
+    .info-popover .stat-row .v.green { color:#7ee787; }
+    .info-popover .stat-row .v.amber { color:#f0883e; }
+    .info-popover .stat-row .v.red { color:#ff7b72; }
+
+    /* rubber-band handled in SVG */
+  </style>
+</head>
+<body>
+
+<div id="loading"><div class="spinner"></div><span>Loading factory data…</span></div>
+
+<!-- Toolbar -->
+<div id="toolbar" style="display:none">
+  <h1>FoxholeFlow</h1>
+  <div class="tb-sep"></div>
+  <button class="tb-btn accent" id="btn-add-node">+ Add Node</button>
+  <div class="tb-sep"></div>
+  <button class="tb-btn primary" id="btn-save">Export</button>
+  <button class="tb-btn" id="btn-load">Import</button>
+  <button class="tb-btn" id="btn-auto-layout">Auto Layout</button>
+  <button class="tb-btn" id="btn-reset">Reset View</button>
+  <button class="tb-btn danger" id="btn-clear">Clear All</button>
+  <input id="file-input" type="file" accept=".json" style="display:none">
+  <span id="tb-status"></span>
+</div>
+
+<!-- Canvas -->
+<div id="canvas-wrap" style="display:none">
+  <div id="canvas">
+    <svg id="svg-edges" width="8000" height="8000" style="position:absolute;top:-2000px;left:-2000px;pointer-events:none;"></svg>
+    <svg id="svg-rubber" width="8000" height="8000" style="position:absolute;top:-2000px;left:-2000px;pointer-events:none;overflow:visible;">
+      <line id="rubber-band" x1="0" y1="0" x2="0" y2="0" stroke="#58a6ff" stroke-width="2" stroke-dasharray="6,3" opacity="0"/>
+    </svg>
+  </div>
+</div>
+
+<!-- Summary -->
+<div id="summary-panel" style="display:none">
+  <div class="sum-header">Production Summary</div>
+  <div class="sum-body" id="sum-body"><div class="sum-empty">Add nodes to begin planning.</div></div>
+  <div class="sum-legend">
+    <div class="leg-title">Legend</div>
+    <div class="leg-row"><span class="leg-dot" style="color:#ff7b72"></span> Unresolved / missing (0 of N)</div>
+    <div class="leg-row"><span class="leg-dot" style="color:#3fb950"></span> Input source node</div>
+    <div class="leg-row"><span class="leg-dot" style="color:#58a6ff"></span> Connected via edge</div>
+    <div class="leg-row"><span class="leg-dot" style="color:#f0883e"></span> Output / byproduct</div>
+    <div class="leg-row" style="margin-top:4px">
+      <span class="leg-line" style="background:#58a6ff"></span> Material flow
+    </div>
+  </div>
+</div>
+
+<!-- Context Menu -->
+<div id="ctx-menu"></div>
+
+<!-- Add Node Popup -->
+<div id="add-node-popup">
+  <div class="anp-header">
+    <input class="anp-search" id="anp-search" type="text" placeholder="Search items, facilities…">
+    <button class="anp-close" id="anp-close">×</button>
+  </div>
+  <div class="anp-tabs">
+    <div class="anp-tab active" data-tab="production">Production</div>
+    <div class="anp-tab" data-tab="output">Output</div>
+    <div class="anp-tab" data-tab="input">Input Source</div>
+  </div>
+  <div class="anp-body" id="anp-body"></div>
+</div>
+
+<!-- Input Resolver popup -->
+<div id="resolver">
+  <div class="resolver-header">
+    <div>
+      <div class="resolver-title" id="resolver-title">Source for…</div>
+      <div class="resolver-subtitle" id="resolver-subtitle"></div>
+    </div>
+    <button class="resolver-close" id="resolver-close">×</button>
+  </div>
+  <div class="resolver-body" id="resolver-body"></div>
+</div>
+
+<!-- Edge popup -->
+<div id="edge-popup">
+  <div class="ep-title" id="ep-title">Configure Flow</div>
+  <div class="ep-row">
+    <span class="label">Mode</span>
+    <select class="ep-input" id="ep-mode" style="width:100%">
+      <option value="auto">Auto (fill downstream)</option>
+      <option value="manual">Manual</option>
+      <option value="byproduct">Byproduct (surplus only)</option>
+    </select>
+  </div>
+  <div id="ep-manual-fields">
+    <div class="ep-row">
+      <span class="label">Flow amount</span>
+      <input class="ep-input" id="ep-flow" type="number" min="0" step="1">
+    </div>
+    <div class="ep-row">
+      <span class="label">Per interval</span>
+      <select class="ep-input" id="ep-interval" style="width:auto"></select>
+    </div>
+  </div>
+  <div class="ep-row" id="ep-auto-display" style="display:none">
+    <span class="label">Computed flow</span>
+    <span id="ep-auto-value" style="font-size:10px;color:#7ee787;font-weight:600">—</span>
+  </div>
+  <div class="ep-btns">
+    <button class="ep-btn" id="ep-ok">OK</button>
+    <button class="ep-btn cancel" id="ep-cancel">Cancel</button>
+    <button class="ep-btn cancel" id="ep-delete" style="color:#ff7b72">Delete</button>
+  </div>
+</div>
+
+<div id="zoom-indicator" style="display:none">100%</div>
+<div id="toast"></div>
+
+<script>
+'use strict';
+
+// ═══════════════════════════════════════════════════════════════
+// DATA LAYER
+// ═══════════════════════════════════════════════════════════════
+let recipeIndex  = {};   // materialKey → [recipeObj, ...]
+let materialNames = {};
+let allRecipesList = [];  // flat list of all unique recipes (for searching)
+let facilityRecipes = {}; // buildingKey/upgradeKey → [recipes]
+
+const ALWAYS_RAW = new Set([
+  'metal','components','sulfur','raremetal','facilitycoal1',
+  'facilityoil1','facilityoil2','water','petrol',
+  'facilitycomponents1','heavyexplosive','explosive',
+]);
+
+const DEFAULT_QUEUES = {
+  'large_assembly_factory': 1,
+  'light_vehicle_assembly_station': 1,
+};
+const DEFAULT_QUEUE_COUNT = 5;
+
+function getQty(v) { return v == null ? 0 : typeof v === 'object' ? (v.quantity||0) : v; }
+function normIO(obj) {
+  if (!obj) return {};
+  const r = {};
+  for (const [k,v] of Object.entries(obj)) r[k] = getQty(v);
+  return r;
+}
+
+function parseData(data) {
+  for (const [k,v] of Object.entries(data.resources||{})) materialNames[k] = v.name||k;
+  for (const [k,v] of Object.entries(data.buildings||{})) if (v.name && !materialNames[k]) materialNames[k] = v.name;
+
+  const bldgs = data.buildings||{};
+  for (const [bKey,building] of Object.entries(bldgs)) {
+    const bName = building.name||bKey, bPow = building.power||0;
+
+    const process = (prods, uKey, uName) => {
+      for (const prod of (prods||[])) {
+        const inputs  = normIO(prod.input);
+        const outputs = normIO(prod.output);
+        if (!Object.keys(outputs).length) continue;
+        const cycleTime = prod.time||1;
+        const power = prod.power ?? bPow;
+
+        const allOutputKeys = Object.keys(outputs);
+        const recipe = {
+          id:`${bKey}/${uKey||'_'}/${prod.id??0}`,
+          buildingKey:bKey, buildingName:bName,
+          upgradeKey:uKey||null, upgradeName:uName||null,
+          inputs, outputs, cycleTime, power,
+        };
+
+        for (const outKey of allOutputKeys) {
+          if (!recipeIndex[outKey]) recipeIndex[outKey] = [];
+          recipeIndex[outKey].push(recipe);
+        }
+        allRecipesList.push(recipe);
+
+        const fKey = `${bKey}/${uKey||'_'}`;
+        if (!facilityRecipes[fKey]) facilityRecipes[fKey] = [];
+        if (!facilityRecipes[fKey].includes(recipe)) facilityRecipes[fKey].push(recipe);
+      }
+    };
+    process(building.production, null, null);
+    for (const [uKey,up] of Object.entries(building.upgrades||{}))
+      process(up.production, uKey, up.name||uKey);
+  }
+
+  // dedupe allRecipesList by id
+  const seen = new Set();
+  allRecipesList = allRecipesList.filter(r => {
+    if (seen.has(r.id)) return false;
+    seen.add(r.id); return true;
+  });
+}
+
+function formatTime(s) {
+  if (s<60) return `${s}s`;
+  if (s<3600){ const m=Math.floor(s/60),r=s%60; return r?`${m}m${r}s`:`${m}m`; }
+  const h=Math.floor(s/3600),m=Math.floor((s%3600)/60); return m?`${h}h${m}m`:`${h}h`;
+}
+function matName(k) { return materialNames[k]||k; }
+
+function recipeLabel(r) {
+  const outs = Object.entries(r.outputs).map(([k,q]) => `${q}× ${matName(k)}`).join(', ');
+  const loc = r.upgradeName ? `${r.buildingName} › ${r.upgradeName}` : r.buildingName;
+  return `${loc} → ${outs} / ${formatTime(r.cycleTime)}`;
+}
+
+// ═══════════════════════════════════════════════════════════════
+// APP STATE
+// ═══════════════════════════════════════════════════════════════
+let _nodeCounter = 0;
+function newNodeId() { return `n${++_nodeCounter}`; }
+let _edgeCounter = 0;
+function newEdgeId() { return `e${++_edgeCounter}`; }
+
+/*
+  Node types:
+    - 'production': A facility producing materials. Has recipe, queues, inputs, outputs.
+    - 'output':     A demand/sink node. Material + desired rate + interval.
+    - 'input':      A source node (collected resource). Material + supply rate + interval.
+  
+  Edge: { id, fromNode, fromMaterial, toNode, toMaterial, flowPerInterval, intervalSec (null=inherit) }
+*/
+
+const appState = {
+  nodes: {},
+  edges: {},
+};
+
+function getRecipeForNode(nodeId) {
+  const n = appState.nodes[nodeId];
+  if (!n || n.type !== 'production') return null;
+  if (!n.recipeId) return null;
+  return allRecipesList.find(r => r.id === n.recipeId) || null;
+}
+
+// ═══════════════════════════════════════════════════════════════
+// GRAPH OPERATIONS
+// ═══════════════════════════════════════════════════════════════
+
+function addProductionNode(recipe, x, y) {
+  const id = newNodeId();
+  const defaultQ = (recipe && recipe.buildingKey in DEFAULT_QUEUES)
+    ? DEFAULT_QUEUES[recipe.buildingKey]
+    : DEFAULT_QUEUE_COUNT;
+  appState.nodes[id] = {
+    id, type: 'production',
+    recipeId: recipe.id,
+    queues: defaultQ,
+    driveMode: 'demand',
+    fixedFacilities: 1,
+    pos: { x, y },
+  };
+  return id;
+}
+
+function addOutputNode(materialKey, x, y) {
+  const id = newNodeId();
+  appState.nodes[id] = {
+    id, type: 'output',
+    materialKey,
+    desiredAmount: 1,
+    intervalSec: 86400,
+    pos: { x, y },
+  };
+  return id;
+}
+
+function addInputNode(materialKey, x, y) {
+  const id = newNodeId();
+  appState.nodes[id] = {
+    id, type: 'input',
+    materialKey,
+    supplyAmount: 0,
+    intervalSec: 86400,
+    pos: { x, y },
+  };
+  return id;
+}
+
+function addEdge(fromNode, fromMaterial, toNode, toMaterial, flow, mode) {
+  const id = newEdgeId();
+  const toNodeObj = appState.nodes[toNode];
+  const defaultInterval = (toNodeObj && (toNodeObj.type === 'output' || toNodeObj.type === 'input'))
+    ? toNodeObj.intervalSec : 86400;
+  appState.edges[id] = {
+    id,
+    fromNode, fromMaterial,
+    toNode, toMaterial,
+    flowPerInterval: flow || 0,
+    intervalSec: defaultInterval,
+    mode: mode || 'auto',
+  };
+  return id;
+}
+
+function removeEdge(edgeId) {
+  delete appState.edges[edgeId];
+}
+
+function removeNode(nodeId) {
+  delete appState.nodes[nodeId];
+  for (const eid of Object.keys(appState.edges)) {
+    const e = appState.edges[eid];
+    if (e.fromNode === nodeId || e.toNode === nodeId) delete appState.edges[eid];
+  }
+}
+
+function getIncomingEdges(nodeId) {
+  return Object.values(appState.edges).filter(e => e.toNode === nodeId);
+}
+function getOutgoingEdges(nodeId) {
+  return Object.values(appState.edges).filter(e => e.fromNode === nodeId);
+}
+function getEdgesBetween(fromId, toId) {
+  return Object.values(appState.edges).filter(e => e.fromNode === fromId && e.toNode === toId);
+}
+
+// ═══════════════════════════════════════════════════════════════
+// DEMAND / FLOW COMPUTATION
+// ═══════════════════════════════════════════════════════════════
+
+function getNodeInterval(nodeId) {
+  const node = appState.nodes[nodeId];
+  if (!node) return 86400;
+  if (node.type === 'output' || node.type === 'input') return node.intervalSec || 86400;
+  return 86400;
+}
+
+function getEdgeInterval(edge) {
+  if (edge.intervalSec) return edge.intervalSec;
+  const toNode = appState.nodes[edge.toNode];
+  if (toNode && (toNode.type === 'output' || toNode.type === 'input')) return toNode.intervalSec || 86400;
+  const fromNode = appState.nodes[edge.fromNode];
+  if (fromNode && (fromNode.type === 'output' || fromNode.type === 'input')) return fromNode.intervalSec || 86400;
+  return 86400;
+}
+
+// resolvedFlows: edgeId → { flow, interval } (flow per interval in real units)
+let resolvedFlows = {};
+
+function getResolvedFlow(edgeId) {
+  return resolvedFlows[edgeId] || { flow: 0, interval: 86400 };
+}
+
+function resolveAutoFlows() {
+  resolvedFlows = {};
+
+  // Phase 0: Set manual edges immediately
+  for (const [eid, edge] of Object.entries(appState.edges)) {
+    if (edge.mode === 'manual') {
+      resolvedFlows[eid] = { flow: edge.flowPerInterval, interval: getEdgeInterval(edge) };
+    }
+  }
+
+  // Run phases 1-3 in a convergence loop: byproduct edges reduce auto demand,
+  // which must propagate backward. Save byproduct flows between passes.
+  let prevByproductFlows = {};
+  for (let outerPass = 0; outerPass < 4; outerPass++) {
+    if (outerPass > 0) {
+      // Save byproduct resolved flows before clearing
+      prevByproductFlows = {};
+      for (const [eid, edge] of Object.entries(appState.edges)) {
+        if (edge.mode === 'byproduct' && resolvedFlows[eid]) {
+          prevByproductFlows[eid] = resolvedFlows[eid];
+        }
+      }
+      for (const [eid, edge] of Object.entries(appState.edges)) {
+        if (edge.mode !== 'manual') delete resolvedFlows[eid];
+      }
+    }
+
+  // Phase 1: Backward walk from outputs — consumers set demand on incoming auto edges
+  const resolved = new Set();
+  const queue = [];
+
+  for (const [nid, node] of Object.entries(appState.nodes)) {
+    if (node.type === 'output') queue.push(nid);
+  }
+  for (const [nid, node] of Object.entries(appState.nodes)) {
+    if (node.type === 'production') {
+      const outgoing = getOutgoingEdges(nid);
+      if (outgoing.length === 0 || outgoing.every(e => resolvedFlows[e.id])) {
+        queue.push(nid);
+      }
+    }
+  }
+
+  let iterations = 0;
+  const maxIter = Object.keys(appState.nodes).length * 3 + 10;
+
+  while (queue.length > 0 && iterations < maxIter) {
+    iterations++;
+    const nid = queue.shift();
+    if (resolved.has(nid)) continue;
+
+    const node = appState.nodes[nid];
+    if (!node) continue;
+
+    const outgoing = getOutgoingEdges(nid).filter(e => e.mode !== 'byproduct');
+    const allOutResolved = outgoing.every(e => resolvedFlows[e.id]);
+    if (!allOutResolved && node.type === 'production') {
+      queue.push(nid);
+      continue;
+    }
+
+    resolved.add(nid);
+
+    const inputNeeds = {};
+
+    if (node.type === 'output') {
+      inputNeeds[node.materialKey] = node.desiredAmount / (node.intervalSec || 86400);
+    } else if (node.type === 'production') {
+      const recipe = getRecipeForNode(nid);
+      if (recipe) {
+        const isCapacity = (node.driveMode || 'demand') === 'capacity';
+        let maxCyclesPerSec = 0;
+        if (isCapacity) {
+          maxCyclesPerSec = (node.fixedFacilities || 1) * (node.queues || 1) / recipe.cycleTime;
+        } else {
+          // Aggregate outgoing flow by material, then compute cycles
+          const outDemand = {};
+          for (const e of outgoing) {
+            const rf = resolvedFlows[e.id];
+            if (!rf) continue;
+            const perSec = rf.flow / rf.interval;
+            outDemand[e.fromMaterial] = (outDemand[e.fromMaterial]||0) + perSec;
+          }
+          for (const [matKey, perSec] of Object.entries(outDemand)) {
+            const outQty = recipe.outputs[matKey] || 0;
+            if (outQty > 0) {
+              maxCyclesPerSec = Math.max(maxCyclesPerSec, perSec / outQty);
+            }
+          }
+        }
+        for (const [matKey, qty] of Object.entries(recipe.inputs)) {
+          inputNeeds[matKey] = maxCyclesPerSec * qty;
+        }
+      }
+    }
+
+    const incoming = getIncomingEdges(nid);
+    for (const matKey of Object.keys(inputNeeds)) {
+      const neededPerSec = inputNeeds[matKey];
+      const allForMat = incoming.filter(e => e.toMaterial === matKey);
+
+      let manualPerSec = 0;
+      let byproductPerSec = 0;
+      const autoEdges = [];
+      for (const e of allForMat) {
+        if (e.mode === 'manual') {
+          const rf = resolvedFlows[e.id];
+          manualPerSec += rf ? (rf.flow / rf.interval) : 0;
+        } else if (e.mode === 'byproduct') {
+          const prevRf = prevByproductFlows[e.id];
+          if (prevRf) byproductPerSec += prevRf.flow / prevRf.interval;
+        } else if (e.mode === 'auto') {
+          autoEdges.push(e);
+        }
+      }
+
+      const remainderPerSec = Math.max(0, neededPerSec - manualPerSec - byproductPerSec);
+      if (autoEdges.length > 0) {
+        const perAutoPerSec = remainderPerSec / autoEdges.length;
+        for (const e of autoEdges) {
+          const interval = getEdgeInterval(e);
+          resolvedFlows[e.id] = { flow: perAutoPerSec * interval, interval };
+        }
+      }
+    }
+
+    for (const e of incoming) {
+      if (appState.nodes[e.fromNode] && !resolved.has(e.fromNode)) {
+        queue.push(e.fromNode);
+      }
+    }
+  }
+
+  // Phase 1b: Cap outgoing auto flows from capacity-driven nodes
+  // If downstream demand exceeds a capacity node's production, scale proportionally
+  for (const [nid, node] of Object.entries(appState.nodes)) {
+    if (node.type !== 'production' || (node.driveMode || 'demand') !== 'capacity') continue;
+    const recipe = getRecipeForNode(nid);
+    if (!recipe) continue;
+    const queues = node.queues || 1;
+    const fac = node.fixedFacilities || 1;
+    const cyclesPerSec = fac * queues / recipe.cycleTime;
+
+    for (const matKey of Object.keys(recipe.outputs)) {
+      const outQty = recipe.outputs[matKey];
+      const capacityPerSec = cyclesPerSec * outQty;
+
+      const outEdges = getOutgoingEdges(nid).filter(e => e.fromMaterial === matKey && e.mode !== 'byproduct');
+      let totalDemandPerSec = 0;
+      for (const e of outEdges) {
+        const rf = resolvedFlows[e.id];
+        if (rf) totalDemandPerSec += rf.flow / rf.interval;
+      }
+
+      if (totalDemandPerSec > capacityPerSec && totalDemandPerSec > 0) {
+        const scale = capacityPerSec / totalDemandPerSec;
+        for (const e of outEdges) {
+          if (e.mode === 'manual') continue;
+          const rf = resolvedFlows[e.id];
+          if (rf) {
+            resolvedFlows[e.id] = { flow: rf.flow * scale, interval: rf.interval };
+          }
+        }
+      }
+    }
+  }
+
+  // Phase 2: Resolve byproduct edges (surplus only, never increases source production)
+  // First compute production rates for all nodes
+  const tempProduced = {};
+  for (const [nid, node] of Object.entries(appState.nodes)) {
+    if (node.type !== 'production') continue;
+    const recipe = getRecipeForNode(nid);
+    if (!recipe) continue;
+    const isCapacity = (node.driveMode || 'demand') === 'capacity';
+    const queues = node.queues || 1;
+    let cyclesPerSec = 0;
+    if (isCapacity) {
+      cyclesPerSec = (node.fixedFacilities || 1) * queues / recipe.cycleTime;
+    } else {
+      const outgoing = getOutgoingEdges(nid).filter(e => e.mode !== 'byproduct');
+      const outDemand = {};
+      for (const e of outgoing) {
+        const rf = resolvedFlows[e.id] || { flow: 0, interval: 86400 };
+        outDemand[e.fromMaterial] = (outDemand[e.fromMaterial]||0) + rf.flow / rf.interval;
+      }
+      for (const [mk, ps] of Object.entries(outDemand)) {
+        const outQty = recipe.outputs[mk] || 0;
+        if (outQty > 0) cyclesPerSec = Math.max(cyclesPerSec, ps / outQty);
+      }
+    }
+    tempProduced[nid] = {};
+    for (const [k, q] of Object.entries(recipe.outputs)) {
+      tempProduced[nid][k] = cyclesPerSec * q;
+    }
+  }
+
+  for (const [eid, edge] of Object.entries(appState.edges)) {
+    if (edge.mode !== 'byproduct') continue;
+    const produced = tempProduced[edge.fromNode]?.[edge.fromMaterial] || 0;
+    // Sum non-byproduct resolved flow from this port
+    let allocatedPerSec = 0;
+    for (const [oeid, oe] of Object.entries(appState.edges)) {
+      if (oeid === eid) continue;
+      if (oe.fromNode === edge.fromNode && oe.fromMaterial === edge.fromMaterial && oe.mode !== 'byproduct') {
+        const rf = resolvedFlows[oeid] || { flow: 0, interval: 86400 };
+        allocatedPerSec += rf.flow / rf.interval;
+      }
+    }
+    const surplusPerSec = Math.max(0, produced - allocatedPerSec);
+    const interval = getEdgeInterval(edge);
+    resolvedFlows[eid] = { flow: surplusPerSec * interval, interval };
+  }
+
+  // Phase 3: Where byproduct edges feed the same input as auto edges,
+  // reduce the auto edges so we don't over-produce upstream.
+  // For each destination input that receives BOTH byproduct and auto flow,
+  // the auto edges should only cover (needed - byproduct - manual).
+  let changed = true;
+  let adjustIter = 0;
+  while (changed && adjustIter < 5) {
+    changed = false;
+    adjustIter++;
+    for (const [nid, node] of Object.entries(appState.nodes)) {
+      if (node.type !== 'production' && node.type !== 'output') continue;
+      let inputMats;
+      if (node.type === 'output') {
+        inputMats = [node.materialKey];
+      } else {
+        const recipe = getRecipeForNode(nid);
+        if (!recipe) continue;
+        inputMats = Object.keys(recipe.inputs);
+      }
+      for (const matKey of inputMats) {
+        const incoming = getIncomingEdges(nid).filter(e => e.toMaterial === matKey);
+        const autoEdges = incoming.filter(e => (e.mode||'auto') === 'auto');
+        const bpEdges = incoming.filter(e => (e.mode||'auto') === 'byproduct');
+        if (!autoEdges.length || !bpEdges.length) continue;
+
+        let neededPerSec;
+        if (node.type === 'output') {
+          neededPerSec = node.desiredAmount / (node.intervalSec || 86400);
+        } else {
+          const recipe = getRecipeForNode(nid);
+          const outgoing = getOutgoingEdges(nid).filter(e => e.mode !== 'byproduct');
+          const outDemand = {};
+          for (const e of outgoing) {
+            const rf = resolvedFlows[e.id] || { flow:0, interval:86400 };
+            outDemand[e.fromMaterial] = (outDemand[e.fromMaterial]||0) + rf.flow / rf.interval;
+          }
+          let mCPS = 0;
+          const isC = (node.driveMode||'demand') === 'capacity';
+          if (isC) {
+            mCPS = (node.fixedFacilities||1) * (node.queues||1) / recipe.cycleTime;
+          } else {
+            for (const [mk,ps] of Object.entries(outDemand)) {
+              const oq = recipe.outputs[mk]||0;
+              if (oq > 0) mCPS = Math.max(mCPS, ps/oq);
+            }
+          }
+          neededPerSec = mCPS * (recipe.inputs[matKey] || 0);
+        }
+
+        let manualPerSec = 0;
+        for (const e of incoming.filter(e => e.mode === 'manual')) {
+          const rf = resolvedFlows[e.id];
+          if (rf) manualPerSec += rf.flow / rf.interval;
+        }
+        let bpPerSec = 0;
+        for (const e of bpEdges) {
+          const rf = resolvedFlows[e.id];
+          if (rf) bpPerSec += rf.flow / rf.interval;
+        }
+
+        const autoNeeded = Math.max(0, neededPerSec - manualPerSec - bpPerSec);
+        const perAuto = autoEdges.length > 0 ? autoNeeded / autoEdges.length : 0;
+
+        for (const e of autoEdges) {
+          const interval = getEdgeInterval(e);
+          const newFlow = perAuto * interval;
+          const oldFlow = resolvedFlows[e.id]?.flow || 0;
+          if (Math.abs(newFlow - oldFlow) > 0.001) {
+            resolvedFlows[e.id] = { flow: newFlow, interval };
+            changed = true;
+          }
+        }
+      }
+    }
+
+    // After adjusting auto edges, recompute byproduct surplus
+    if (changed) {
+      for (const [eid, edge] of Object.entries(appState.edges)) {
+        if (edge.mode !== 'byproduct') continue;
+        const prod = tempProduced[edge.fromNode]?.[edge.fromMaterial] || 0;
+        let alloc = 0;
+        for (const [oeid, oe] of Object.entries(appState.edges)) {
+          if (oeid === eid) continue;
+          if (oe.fromNode === edge.fromNode && oe.fromMaterial === edge.fromMaterial && oe.mode !== 'byproduct') {
+            const rf = resolvedFlows[oeid] || { flow:0, interval:86400 };
+            alloc += rf.flow / rf.interval;
+          }
+        }
+        const surplus = Math.max(0, prod - alloc);
+        const interval = getEdgeInterval(edge);
+        resolvedFlows[eid] = { flow: surplus * interval, interval };
+      }
+    }
+  }
+
+  } // end convergence loop
+
+  // Fill any remaining
+  for (const [eid, edge] of Object.entries(appState.edges)) {
+    if (!resolvedFlows[eid]) {
+      resolvedFlows[eid] = { flow: edge.mode === 'manual' ? (edge.flowPerInterval || 0) : 0, interval: getEdgeInterval(edge) };
+    }
+  }
+}
+
+function computeNodeStats() {
+  resolveAutoFlows();
+  const stats = {};
+
+  for (const [nid, node] of Object.entries(appState.nodes)) {
+    const s = { produced: {}, consumed: {}, supplied: {}, demanded: {}, facilities: 0 };
+
+    if (node.type === 'production') {
+      const recipe = getRecipeForNode(nid);
+      if (recipe) {
+        const isCapacity = (node.driveMode || 'demand') === 'capacity';
+        const queues = node.queues || 1;
+        let cyclesPerSec;
+
+        if (isCapacity) {
+          s.facilities = node.fixedFacilities || 1;
+          cyclesPerSec = s.facilities * queues / recipe.cycleTime;
+        } else {
+          // Demand-driven: derive from outgoing resolved flows (exclude byproduct)
+          const outgoing = getOutgoingEdges(nid).filter(e => e.mode !== 'byproduct');
+          const totalOutputDemand = {};
+          for (const e of outgoing) {
+            const rf = getResolvedFlow(e.id);
+            const perSec = rf.flow / rf.interval;
+            totalOutputDemand[e.fromMaterial] = (totalOutputDemand[e.fromMaterial]||0) + perSec;
+          }
+          let maxCyclesPerSec = 0;
+          for (const [matKey, perSec] of Object.entries(totalOutputDemand)) {
+            const outQty = recipe.outputs[matKey] || 0;
+            if (outQty > 0) maxCyclesPerSec = Math.max(maxCyclesPerSec, perSec / outQty);
+          }
+          cyclesPerSec = maxCyclesPerSec;
+          if (cyclesPerSec > 0 && recipe.cycleTime > 0) {
+            s.facilities = Math.max(1, Math.ceil(cyclesPerSec * recipe.cycleTime / queues));
+          }
+        }
+
+        for (const [k,q] of Object.entries(recipe.outputs)) {
+          s.produced[k] = cyclesPerSec * q;
+        }
+        for (const [k,q] of Object.entries(recipe.inputs)) {
+          s.consumed[k] = cyclesPerSec * q;
+        }
+
+        s.cyclesPerSec = cyclesPerSec;
+        s.power = (recipe.power || 0) * s.facilities;
+      }
+    } else if (node.type === 'output') {
+      s.demanded[node.materialKey] = node.desiredAmount / node.intervalSec;
+    } else if (node.type === 'input') {
+      const outgoing = getOutgoingEdges(nid);
+      for (const e of outgoing) {
+        const rf = getResolvedFlow(e.id);
+        s.supplied[e.fromMaterial] = (s.supplied[e.fromMaterial]||0) + rf.flow / rf.interval;
+      }
+    }
+
+    stats[nid] = s;
+  }
+  return stats;
+}
+
+// For a production node's input: how much is connected vs needed
+function getInputStatus(nodeId, matKey, stats) {
+  const s = stats[nodeId];
+  if (!s) return { neededPerSec: 0, connectedPerSec: 0 };
+  const neededPerSec = s.consumed[matKey] || 0;
+  const incoming = getIncomingEdges(nodeId).filter(e => e.toMaterial === matKey);
+  let connectedPerSec = 0;
+  for (const e of incoming) {
+    const rf = getResolvedFlow(e.id);
+    connectedPerSec += rf.flow / rf.interval;
+  }
+  return { neededPerSec, connectedPerSec };
+}
+
+// ═══════════════════════════════════════════════════════════════
+// RENDERING
+// ═══════════════════════════════════════════════════════════════
+function render() {
+  const stats = computeNodeStats();
+  renderAllNodes(stats);
+  requestAnimationFrame(() => {
+    renderEdges(stats);
+    renderSummary(stats);
+  });
+}
+
+function renderAllNodes(stats) {
+  const canvas = document.getElementById('canvas');
+  canvas.querySelectorAll('.node-card').forEach(el => el.remove());
+  for (const nodeId of Object.keys(appState.nodes)) {
+    const el = buildNodeCard(nodeId, stats);
+    canvas.appendChild(el);
+  }
+}
+
+function buildNodeCard(nodeId, stats) {
+  const node = appState.nodes[nodeId];
+  const pos = node.pos;
+
+  const card = document.createElement('div');
+  card.className = `node-card type-${node.type}`;
+  card.id = `card-${nodeId}`;
+  card.dataset.nodeId = nodeId;
+  card.style.left = pos.x + 'px';
+  card.style.top  = pos.y + 'px';
+
+  if (node.type === 'production') buildProductionCard(card, nodeId, node, stats);
+  else if (node.type === 'output') buildOutputCard(card, nodeId, node, stats);
+  else if (node.type === 'input') buildInputCard(card, nodeId, node, stats);
+
+  // Delete button
+  const delBtn = document.createElement('button');
+  delBtn.style.cssText = `
+    position:absolute; top:-8px; right:-8px; width:18px; height:18px;
+    background:#ff7b72; border:none; border-radius:50%;
+    color:#fff; font-size:10px; cursor:pointer; line-height:1;
+    display:flex; align-items:center; justify-content:center; z-index:20;
+  `;
+  delBtn.textContent = '×';
+  delBtn.title = 'Remove this node';
+  delBtn.addEventListener('mousedown', e=>e.stopPropagation());
+  delBtn.addEventListener('click', e => {
+    e.stopPropagation();
+    removeNode(nodeId);
+    render();
+  });
+  card.appendChild(delBtn);
+
+  addDragHandler(card, nodeId);
+  card.addEventListener('contextmenu', e => {
+    e.preventDefault(); e.stopPropagation();
+    showNodeContextMenu(nodeId, e.clientX, e.clientY);
+  });
+
+  return card;
+}
+
+// ── HOVER TRACE (per-material) ───────────────────────────────
+// Traces upstream for a specific material at a specific node
+function getUpstreamForMaterial(nodeId, materialKey) {
+  const nodeSet = new Set([nodeId]);
+  const edgeSet = new Set();
+  const matPortSet = new Set([`${nodeId}.${materialKey}`]);
+
+  const queue = [{ nid: nodeId, mat: materialKey }];
+  while (queue.length > 0) {
+    const { nid, mat } = queue.shift();
+    const incoming = getIncomingEdges(nid).filter(e => e.toMaterial === mat);
+    for (const e of incoming) {
+      edgeSet.add(e.id);
+      const srcNode = appState.nodes[e.fromNode];
+      if (!srcNode) continue;
+      nodeSet.add(e.fromNode);
+      matPortSet.add(`${e.fromNode}.${e.fromMaterial}`);
+
+      if (srcNode.type === 'production') {
+        const recipe = getRecipeForNode(e.fromNode);
+        if (recipe) {
+          for (const inMatKey of Object.keys(recipe.inputs)) {
+            const pk = `${e.fromNode}.${inMatKey}`;
+            if (!matPortSet.has(pk)) {
+              matPortSet.add(pk);
+              queue.push({ nid: e.fromNode, mat: inMatKey });
+            }
+          }
+        }
+      }
+    }
+  }
+  return { nodeSet, edgeSet, matPortSet };
+}
+
+// Traces downstream for a specific output material at a specific node
+function getDownstreamForMaterial(nodeId, materialKey) {
+  const nodeSet = new Set([nodeId]);
+  const edgeSet = new Set();
+  const matPortSet = new Set([`${nodeId}.${materialKey}`]);
+
+  const queue = [{ nid: nodeId, mat: materialKey }];
+  while (queue.length > 0) {
+    const { nid, mat } = queue.shift();
+    const outgoing = getOutgoingEdges(nid).filter(e => e.fromMaterial === mat);
+    for (const e of outgoing) {
+      edgeSet.add(e.id);
+      const dstNode = appState.nodes[e.toNode];
+      if (!dstNode) continue;
+      nodeSet.add(e.toNode);
+      matPortSet.add(`${e.toNode}.${e.toMaterial}`);
+
+      if (dstNode.type === 'production') {
+        const recipe = getRecipeForNode(e.toNode);
+        if (recipe) {
+          for (const outMatKey of Object.keys(recipe.outputs)) {
+            const pk = `${e.toNode}.${outMatKey}`;
+            if (!matPortSet.has(pk)) {
+              matPortSet.add(pk);
+              queue.push({ nid: e.toNode, mat: outMatKey });
+            }
+          }
+        }
+      }
+    }
+  }
+  return { nodeSet, edgeSet, matPortSet };
+}
+
+let _traceActive = false;
+
+function applyMaterialTrace(nodeId, materialKey) {
+  if (dragNode || isPanning || dragPort) return;
+  _traceActive = true;
+  const { nodeSet, edgeSet, matPortSet } = getUpstreamForMaterial(nodeId, materialKey);
+
+  document.querySelectorAll('.node-card').forEach(card => {
+    const nid = card.dataset.nodeId;
+    if (nodeSet.has(nid)) {
+      card.classList.add('highlighted');
+      card.classList.remove('dimmed');
+    } else {
+      card.classList.add('dimmed');
+      card.classList.remove('highlighted');
+    }
+  });
+
+  document.querySelectorAll('.port-row').forEach(row => {
+    const rNid = row.dataset.nodeId;
+    const rMat = row.dataset.material;
+    if (rNid && rMat) {
+      const pk = `${rNid}.${rMat}`;
+      if (matPortSet.has(pk)) {
+        row.classList.add('trace-highlight');
+        row.classList.remove('trace-dim');
+      } else if (nodeSet.has(rNid)) {
+        row.classList.add('trace-dim');
+        row.classList.remove('trace-highlight');
+      }
+    }
+  });
+
+  document.querySelectorAll('.edge-path, .edge-hit').forEach(el => {
+    const eid = el.dataset.edgeId;
+    if (edgeSet.has(eid)) {
+      el.classList.add('highlighted');
+      el.classList.remove('dimmed');
+    } else {
+      el.classList.add('dimmed');
+      el.classList.remove('highlighted');
+    }
+  });
+  document.querySelectorAll('.edge-label').forEach(el => {
+    const eid = el.dataset.edgeId;
+    if (!edgeSet.has(eid)) el.classList.add('dimmed');
+  });
+}
+
+function applyDownstreamTrace(nodeId, materialKey) {
+  if (dragNode || isPanning || dragPort) return;
+  _traceActive = true;
+  const { nodeSet, edgeSet, matPortSet } = getDownstreamForMaterial(nodeId, materialKey);
+
+  document.querySelectorAll('.node-card').forEach(card => {
+    const nid = card.dataset.nodeId;
+    if (nodeSet.has(nid)) {
+      card.classList.add('highlighted');
+      card.classList.remove('dimmed');
+    } else {
+      card.classList.add('dimmed');
+      card.classList.remove('highlighted');
+    }
+  });
+
+  document.querySelectorAll('.port-row').forEach(row => {
+    const rNid = row.dataset.nodeId;
+    const rMat = row.dataset.material;
+    if (rNid && rMat) {
+      const pk = `${rNid}.${rMat}`;
+      if (matPortSet.has(pk)) {
+        row.classList.add('trace-highlight');
+        row.classList.remove('trace-dim');
+      } else if (nodeSet.has(rNid)) {
+        row.classList.add('trace-dim');
+        row.classList.remove('trace-highlight');
+      }
+    }
+  });
+
+  document.querySelectorAll('.edge-path, .edge-hit').forEach(el => {
+    const eid = el.dataset.edgeId;
+    if (edgeSet.has(eid)) {
+      el.classList.add('highlighted');
+      el.classList.remove('dimmed');
+    } else {
+      el.classList.add('dimmed');
+      el.classList.remove('highlighted');
+    }
+  });
+  document.querySelectorAll('.edge-label').forEach(el => {
+    const eid = el.dataset.edgeId;
+    if (!edgeSet.has(eid)) el.classList.add('dimmed');
+  });
+}
+
+function clearMaterialTrace() {
+  if (!_traceActive) return;
+  _traceActive = false;
+  document.querySelectorAll('.node-card.dimmed,.node-card.highlighted').forEach(el => {
+    el.classList.remove('dimmed','highlighted');
+  });
+  document.querySelectorAll('.port-row.trace-highlight,.port-row.trace-dim').forEach(el => {
+    el.classList.remove('trace-highlight','trace-dim');
+  });
+  document.querySelectorAll('.edge-path.dimmed,.edge-path.highlighted,.edge-hit.dimmed,.edge-hit.highlighted,.edge-label.dimmed').forEach(el => {
+    el.classList.remove('dimmed','highlighted');
+  });
+}
+
+// ── PRODUCTION NODE CARD ──────────────────────────────────────
+function buildProductionCard(card, nodeId, node, stats) {
+  const recipe = getRecipeForNode(nodeId);
+  const s = stats[nodeId] || {};
+  const intervalSec = 86400;
+
+  // Header: facility name, not material name
+  const hdr = document.createElement('div');
+  hdr.className = 'node-header';
+  if (recipe) {
+    hdr.innerHTML = `<div class="node-title">${recipe.buildingName}</div>`;
+    if (recipe.upgradeName) hdr.innerHTML += `<div class="node-upg-name">${recipe.upgradeName}</div>`;
+  } else {
+    hdr.innerHTML = `<div class="node-title">Unknown Facility</div>`;
+  }
+  card.appendChild(hdr);
+
+  if (!recipe) {
+    const nb = document.createElement('div');
+    nb.style.cssText = 'padding:8px 10px;font-size:9px;color:#6e7681';
+    nb.textContent = 'No recipe assigned.';
+    card.appendChild(nb);
+    return;
+  }
+
+  // Controls: queues + recipe selector
+  const ctrl = document.createElement('div');
+  ctrl.className = 'node-controls';
+
+  // Recipe selector
+  const fKey = `${recipe.buildingKey}/${recipe.upgradeKey||'_'}`;
+  const siblings = facilityRecipes[fKey] || [];
+  if (siblings.length > 1) {
+    ctrl.innerHTML += `<span class="label">Recipe</span>`;
+    const sel = document.createElement('select');
+    sel.className = 'node-ctrl-select';
+    siblings.forEach(r => {
+      const opt = document.createElement('option');
+      opt.value = r.id;
+      const outStr = Object.entries(r.outputs).map(([k,q])=>`${q}× ${matName(k)}`).join(', ');
+      opt.textContent = `${outStr} / ${formatTime(r.cycleTime)}`;
+      if (r.id === node.recipeId) opt.selected = true;
+      sel.appendChild(opt);
+    });
+    sel.addEventListener('mousedown', e=>e.stopPropagation());
+    sel.addEventListener('change', e => {
+      node.recipeId = e.target.value;
+      render();
+    });
+    ctrl.appendChild(sel);
+  } else {
+    const outStr = Object.entries(recipe.outputs).map(([k,q])=>`${q}× ${matName(k)}`).join(', ');
+    ctrl.innerHTML += `<span class="label">Cycle:</span>
+      <span style="font-size:9px;color:#c9d1d9">${formatTime(recipe.cycleTime)}</span>
+      <span class="label" style="margin-left:4px">→</span>
+      <span style="font-size:9px;color:#7ee787">${outStr}</span>`;
+  }
+  card.appendChild(ctrl);
+
+  // Production controls: Solve-for mode + editable fields
+  const isCapacity = (node.driveMode || 'demand') === 'capacity';
+  const queues = node.queues || 1;
+  const fac = s.facilities || (isCapacity ? (node.fixedFacilities||1) : 0);
+  const primaryOutKey = Object.keys(recipe.outputs)[0];
+  const primaryOutQty = recipe.outputs[primaryOutKey] || 1;
+  const cyclesPerSec = s.cyclesPerSec || 0;
+  const ratePerDay = cyclesPerSec * primaryOutQty * 86400;
+
+  const pc = document.createElement('div');
+  pc.className = 'prod-controls';
+  pc.style.position = 'relative';
+
+  // Solve-for selector
+  const solveFor = document.createElement('select');
+  solveFor.className = 'pc-select';
+  solveFor.title = 'What to calculate';
+  solveFor.innerHTML = `
+    <option value="demand"${!isCapacity?' selected':''}>Fac = ?</option>
+    <option value="capacity"${isCapacity?' selected':''}>Rate = ?</option>`;
+  solveFor.addEventListener('mousedown', e=>e.stopPropagation());
+  solveFor.addEventListener('change', e => {
+    node.driveMode = e.target.value === 'capacity' ? 'capacity' : 'demand';
+    if (node.driveMode === 'capacity' && !node.fixedFacilities) node.fixedFacilities = fac || 1;
+    render();
+  });
+  pc.appendChild(solveFor);
+  pc.appendChild(Object.assign(document.createElement('span'), {className:'pc-sep',textContent:'│'}));
+
+  if (isCapacity) {
+    // Capacity mode: user sets facilities, rate is computed
+    const facIn = document.createElement('input');
+    facIn.type = 'number'; facIn.min = 1; facIn.className = 'pc-input'; facIn.style.width = '30px';
+    facIn.value = node.fixedFacilities || 1;
+    facIn.title = 'Number of facilities';
+    facIn.addEventListener('mousedown', e=>e.stopPropagation());
+    facIn.addEventListener('change', e => {
+      node.fixedFacilities = Math.max(1, parseInt(e.target.value)||1);
+      render();
+    });
+    pc.appendChild(facIn);
+    pc.appendChild(Object.assign(document.createElement('span'), {className:'pc-label',textContent:'fac'}));
+    pc.appendChild(Object.assign(document.createElement('span'), {className:'pc-sep',textContent:'×'}));
+
+    const qIn = document.createElement('input');
+    qIn.type = 'number'; qIn.min = 1; qIn.max = 10; qIn.className = 'pc-input'; qIn.style.width = '22px';
+    qIn.value = queues;
+    qIn.title = 'Queues per facility';
+    qIn.addEventListener('mousedown', e=>e.stopPropagation());
+    qIn.addEventListener('change', e => {
+      node.queues = Math.max(1, parseInt(e.target.value)||1);
+      render();
+    });
+    pc.appendChild(qIn);
+    pc.appendChild(Object.assign(document.createElement('span'), {className:'pc-label',textContent:'Q'}));
+    pc.appendChild(Object.assign(document.createElement('span'), {className:'pc-sep',textContent:'→'}));
+
+    const rateSpan = document.createElement('span');
+    rateSpan.className = 'pc-val';
+    rateSpan.textContent = `${fmt(ratePerDay)}/day`;
+    rateSpan.title = 'Computed output rate';
+    pc.appendChild(rateSpan);
+  } else {
+    // Demand mode: rate is from downstream, facilities are computed
+    const facSpan = document.createElement('span');
+    facSpan.className = 'pc-val';
+    facSpan.style.color = '#79c0ff';
+    facSpan.textContent = `${fac} fac`;
+    facSpan.title = 'Computed facilities needed';
+    pc.appendChild(facSpan);
+    pc.appendChild(Object.assign(document.createElement('span'), {className:'pc-sep',textContent:'×'}));
+
+    const qIn = document.createElement('input');
+    qIn.type = 'number'; qIn.min = 1; qIn.max = 10; qIn.className = 'pc-input'; qIn.style.width = '22px';
+    qIn.value = queues;
+    qIn.title = 'Queues per facility';
+    qIn.addEventListener('mousedown', e=>e.stopPropagation());
+    qIn.addEventListener('change', e => {
+      node.queues = Math.max(1, parseInt(e.target.value)||1);
+      render();
+    });
+    pc.appendChild(qIn);
+    pc.appendChild(Object.assign(document.createElement('span'), {className:'pc-label',textContent:'Q'}));
+    pc.appendChild(Object.assign(document.createElement('span'), {className:'pc-sep',textContent:'→'}));
+
+    const rateSpan = document.createElement('span');
+    rateSpan.className = 'pc-val';
+    rateSpan.textContent = ratePerDay > 0 ? `${fmt(ratePerDay)}/day` : 'auto';
+    rateSpan.title = 'Output rate from downstream demand';
+    pc.appendChild(rateSpan);
+  }
+
+  // Info icon
+  const infoIcon = document.createElement('span');
+  infoIcon.className = 'info-icon';
+  infoIcon.textContent = 'i';
+  infoIcon.title = 'Detailed stats';
+  infoIcon.addEventListener('mousedown', e=>e.stopPropagation());
+  infoIcon.addEventListener('click', e => {
+    e.stopPropagation();
+    const pop = pc.querySelector('.info-popover');
+    if (pop) pop.classList.toggle('visible');
+  });
+  pc.appendChild(infoIcon);
+
+  // Info popover
+  const cycleTimeSec = recipe.cycleTime || 1;
+  const displayFac = fac || 1;
+  const cyclesPerDay = cyclesPerSec * 86400;
+  const cyclesPerFacility = displayFac > 0 ? cyclesPerDay / displayFac : 0;
+  const activeSecPerFac = displayFac > 0 ? (cyclesPerFacility / queues) * cycleTimeSec : 0;
+  const utilizationPct = displayFac > 0 ? Math.min(100, (activeSecPerFac / 86400) * 100) : 0;
+  const pw = (recipe.power || 0) * displayFac;
+
+  const popover = document.createElement('div');
+  popover.className = 'info-popover';
+  let popHtml = `
+    <div class="stat-row"><span>Mode</span><span class="v">${isCapacity ? 'Capacity' : 'Demand'}</span></div>
+    <div class="stat-row"><span>Facilities</span><span class="v blue">${displayFac}</span></div>
+    <div class="stat-row"><span>Queues</span><span class="v">${queues}</span></div>
+    <div class="stat-row"><span>Cycle</span><span class="v">${formatTime(cycleTimeSec)} → ${primaryOutQty}×</span></div>`;
+  if (cyclesPerDay > 0) {
+    popHtml += `
+    <div class="stat-row"><span>Runs/day</span><span class="v">${fmt(cyclesPerDay)}</span></div>
+    <div class="stat-row"><span>Per facility</span><span class="v">${fmt(cyclesPerFacility)}/day</span></div>
+    <div class="stat-row"><span>Active/fac</span><span class="v ${utilizationPct>95?'red':utilizationPct>75?'amber':'green'}">${formatTime(Math.round(activeSecPerFac))} (${Math.round(utilizationPct)}%)</span></div>`;
+  }
+  if (pw !== 0) {
+    popHtml += `<div class="stat-row"><span>Power</span><span class="v ${pw<0?'red':'green'}">${pw} MW</span></div>`;
+  }
+  popover.innerHTML = popHtml;
+  pc.appendChild(popover);
+
+  card.appendChild(pc);
+
+  // INPUTS section
+  const inputKeys = Object.keys(recipe.inputs);
+  if (inputKeys.length) {
+    const secLabel = document.createElement('div');
+    secLabel.className = 'section-label';
+    secLabel.textContent = 'Inputs';
+    card.appendChild(secLabel);
+
+    for (const matKey of inputKeys) {
+      const qtyPerCycle = recipe.inputs[matKey];
+      const { neededPerSec, connectedPerSec } = getInputStatus(nodeId, matKey, stats);
+      const neededPerInterval = neededPerSec * intervalSec;
+      const connectedPerInterval = connectedPerSec * intervalSec;
+      const hasSource = connectedPerSec > 0;
+      const isFull = connectedPerSec >= neededPerSec && neededPerSec > 0;
+
+      const row = document.createElement('div');
+      row.className = 'port-row input-side';
+      row.dataset.nodeId = nodeId;
+      row.dataset.material = matKey;
+      row.dataset.portType = 'input';
+
+      const dot = document.createElement('span');
+      dot.className = `port-dot left ${hasSource ? 'connected' : 'unresolved'}`;
+      dot.dataset.nodeId = nodeId;
+      dot.dataset.material = matKey;
+      dot.dataset.role = 'input';
+      row.appendChild(dot);
+
+      const qty = document.createElement('span');
+      qty.className = 'port-qty in';
+      qty.textContent = `${qtyPerCycle}×`;
+      row.appendChild(qty);
+
+      const mat = document.createElement('span');
+      mat.className = 'port-mat';
+      mat.textContent = matName(matKey);
+      row.appendChild(mat);
+
+      const info = document.createElement('span');
+      info.className = 'port-info';
+      if (neededPerSec > 0) {
+        info.textContent = `${fmt(connectedPerInterval)}/${fmt(neededPerInterval)}`;
+        info.style.color = isFull ? '#7ee787' : (hasSource ? '#f0883e' : '#ff7b72');
+      } else {
+        info.textContent = `0/${fmt(qtyPerCycle)}`;
+        info.style.color = '#ff7b72';
+      }
+      row.appendChild(info);
+
+      row.style.cursor = 'pointer';
+      const _matKey = matKey;
+      row.addEventListener('mousedown', e => e.stopPropagation());
+      row.addEventListener('click', e => {
+        if (e.target.closest('.port-dot')) return;
+        e.stopPropagation();
+        openResolver(nodeId, _matKey, e.currentTarget);
+      });
+
+      // Per-material hover trace
+      row.addEventListener('mouseenter', () => applyMaterialTrace(nodeId, _matKey));
+      row.addEventListener('mouseleave', () => clearMaterialTrace());
+
+      card.appendChild(row);
+    }
+  }
+
+  // OUTPUTS section
+  const outputKeys = Object.keys(recipe.outputs);
+  if (outputKeys.length) {
+    const secLabel = document.createElement('div');
+    secLabel.className = 'section-label';
+    secLabel.textContent = 'Outputs';
+    card.appendChild(secLabel);
+
+    for (const matKey of outputKeys) {
+      const qtyPerCycle = recipe.outputs[matKey];
+      const producedPerSec = (s.produced && s.produced[matKey]) || 0;
+
+      const outgoing = getOutgoingEdges(nodeId).filter(e => e.fromMaterial === matKey);
+      let allocatedPerSec = 0;
+      for (const e of outgoing) {
+        const rf = getResolvedFlow(e.id);
+        allocatedPerSec += rf.flow / rf.interval;
+      }
+      const surplusPerSec = producedPerSec - allocatedPerSec;
+
+      const row = document.createElement('div');
+      row.className = 'port-row output-side';
+      row.dataset.nodeId = nodeId;
+      row.dataset.material = matKey;
+      row.dataset.portType = 'output';
+
+      const qty = document.createElement('span');
+      qty.className = 'port-qty out';
+      qty.textContent = `${qtyPerCycle}×`;
+      row.appendChild(qty);
+
+      const mat = document.createElement('span');
+      mat.className = 'port-mat';
+      mat.textContent = matName(matKey);
+      row.appendChild(mat);
+
+      const info = document.createElement('span');
+      info.className = 'port-info';
+      if (producedPerSec > 0) {
+        info.textContent = `${fmt(producedPerSec * intervalSec)}/day`;
+        if (surplusPerSec > 0.0001) {
+          info.textContent += ` (${fmt(surplusPerSec * intervalSec)} surplus)`;
+          info.style.color = '#f0883e';
+        }
+      }
+      row.appendChild(info);
+
+      const dot = document.createElement('span');
+      dot.className = `port-dot right ${outgoing.length ? 'connected' : 'byproduct'}`;
+      dot.dataset.nodeId = nodeId;
+      dot.dataset.material = matKey;
+      dot.dataset.role = 'output';
+      row.appendChild(dot);
+
+      // Downstream hover trace for output rows
+      const _outMatKey = matKey;
+      row.addEventListener('mouseenter', () => applyDownstreamTrace(nodeId, _outMatKey));
+      row.addEventListener('mouseleave', () => clearMaterialTrace());
+
+      card.appendChild(row);
+    }
+  }
+
+  // Compact footer: power only (if nonzero)
+  const pw2 = (recipe.power || 0) * (s.facilities || (isCapacity ? (node.fixedFacilities||1) : 0));
+  if (pw2 !== 0) {
+    const fStats = document.createElement('div');
+    fStats.className = 'node-stats';
+    fStats.innerHTML = `<div class="stat-row"><span>Power</span><span class="v ${pw2<0?'red':'green'}">${pw2} MW</span></div>`;
+    card.appendChild(fStats);
+  }
+}
+
+// ── OUTPUT NODE CARD ──────────────────────────────────────────
+function buildOutputCard(card, nodeId, node, stats) {
+  const hdr = document.createElement('div');
+  hdr.className = 'node-header';
+  hdr.innerHTML = `<div class="node-title">OUTPUT: ${matName(node.materialKey)}</div>
+    <div class="node-subtitle">Demand sink</div>`;
+  card.appendChild(hdr);
+
+  // Controls
+  const ctrl = document.createElement('div');
+  ctrl.className = 'node-controls';
+  ctrl.innerHTML = `<span class="label">Amount</span>`;
+  const amtInput = document.createElement('input');
+  amtInput.type = 'number'; amtInput.min = 0; amtInput.value = node.desiredAmount;
+  amtInput.className = 'node-ctrl-input'; amtInput.style.width = '60px';
+  amtInput.addEventListener('mousedown', e=>e.stopPropagation());
+  amtInput.addEventListener('change', e => { node.desiredAmount = Math.max(0, parseFloat(e.target.value)||0); render(); });
+  amtInput.addEventListener('input', e => { node.desiredAmount = Math.max(0, parseFloat(e.target.value)||0); });
+  ctrl.appendChild(amtInput);
+
+  const perLabel = document.createElement('span');
+  perLabel.className = 'label';
+  perLabel.textContent = 'per';
+  ctrl.appendChild(perLabel);
+  const intSel = createIntervalSelect(node.intervalSec, val => { node.intervalSec = val; render(); });
+  ctrl.appendChild(intSel);
+  card.appendChild(ctrl);
+
+  // Input port
+  const incoming = getIncomingEdges(nodeId);
+  let connectedPerSec = 0;
+  for (const e of incoming) {
+    const rf = getResolvedFlow(e.id);
+    connectedPerSec += rf.flow / rf.interval;
+  }
+  const neededPerSec = node.desiredAmount / node.intervalSec;
+  const connPerInterval = connectedPerSec * node.intervalSec;
+  const neededPerInterval = node.desiredAmount;
+  const isFull = connectedPerSec >= neededPerSec - 0.0001 && neededPerSec > 0;
+
+  const secLabel = document.createElement('div');
+  secLabel.className = 'section-label';
+  secLabel.textContent = 'Receives';
+  card.appendChild(secLabel);
+
+  const row = document.createElement('div');
+  row.className = 'port-row input-side';
+  row.dataset.nodeId = nodeId;
+  row.dataset.material = node.materialKey;
+  row.dataset.portType = 'input';
+
+  const dot = document.createElement('span');
+  dot.className = `port-dot left ${incoming.length ? 'connected' : 'unresolved'}`;
+  dot.dataset.nodeId = nodeId;
+  dot.dataset.material = node.materialKey;
+  dot.dataset.role = 'input';
+  row.appendChild(dot);
+
+  const mat = document.createElement('span');
+  mat.className = 'port-mat';
+  mat.textContent = matName(node.materialKey);
+  row.appendChild(mat);
+
+  const info = document.createElement('span');
+  info.className = 'port-info';
+  info.textContent = `${fmt(connPerInterval)}/${fmt(neededPerInterval)} per ${formatTime(node.intervalSec)}`;
+  info.style.color = isFull ? '#7ee787' : '#ff7b72';
+  row.appendChild(info);
+
+  row.style.cursor = 'pointer';
+  row.addEventListener('mousedown', e => e.stopPropagation());
+  row.addEventListener('click', e => {
+    if (e.target.closest('.port-dot')) return;
+    e.stopPropagation();
+    openResolver(nodeId, node.materialKey, e.currentTarget);
+  });
+  row.addEventListener('mouseenter', () => applyMaterialTrace(nodeId, node.materialKey));
+  row.addEventListener('mouseleave', () => clearMaterialTrace());
+
+  card.appendChild(row);
+}
+
+// ── INPUT (SOURCE) NODE CARD ──────────────────────────────────
+function buildInputCard(card, nodeId, node, stats) {
+  const hdr = document.createElement('div');
+  hdr.className = 'node-header';
+  hdr.innerHTML = `<div class="node-title">SOURCE: ${matName(node.materialKey)}</div>
+    <div class="node-subtitle">Collected / external supply</div>`;
+  card.appendChild(hdr);
+
+  // Compute total demand from outgoing edges
+  const outgoing = getOutgoingEdges(nodeId);
+  let totalPerSec = 0;
+  for (const e of outgoing) {
+    const rf = getResolvedFlow(e.id);
+    totalPerSec += rf.flow / rf.interval;
+  }
+
+  // Pick a display interval from the first edge, or 24h default
+  const displayInterval = outgoing.length > 0 ? getEdgeInterval(outgoing[0]) : 86400;
+  const totalPerInterval = totalPerSec * displayInterval;
+
+  const secLabel = document.createElement('div');
+  secLabel.className = 'section-label';
+  secLabel.textContent = 'Provides';
+  card.appendChild(secLabel);
+
+  const row = document.createElement('div');
+  row.className = 'port-row output-side';
+  row.dataset.nodeId = nodeId;
+  row.dataset.material = node.materialKey;
+  row.dataset.portType = 'output';
+
+  const mat = document.createElement('span');
+  mat.className = 'port-mat';
+  mat.textContent = matName(node.materialKey);
+  row.appendChild(mat);
+
+  const info = document.createElement('span');
+  info.className = 'port-info';
+  if (totalPerSec > 0) {
+    info.textContent = `${fmt(totalPerInterval)} per ${formatTime(displayInterval)}`;
+    info.style.color = '#7ee787';
+  } else {
+    info.textContent = outgoing.length ? 'auto' : 'not connected';
+    info.style.color = '#6e7681';
+  }
+  row.appendChild(info);
+
+  const dot = document.createElement('span');
+  dot.className = `port-dot right source`;
+  dot.dataset.nodeId = nodeId;
+  dot.dataset.material = node.materialKey;
+  dot.dataset.role = 'output';
+  row.appendChild(dot);
+
+  card.appendChild(row);
+}
+
+function createIntervalSelect(currentVal, onChange) {
+  const sel = document.createElement('select');
+  sel.className = 'node-ctrl-select';
+  sel.style.width = '80px';
+  const opts = [
+    [3600,'1h'],[7200,'2h'],[21600,'6h'],[43200,'12h'],
+    [86400,'24h'],[172800,'48h'],[259200,'72h'],
+  ];
+  let found = false;
+  for (const [v, label] of opts) {
+    const opt = document.createElement('option');
+    opt.value = v; opt.textContent = label;
+    if (v === currentVal) { opt.selected = true; found = true; }
+    sel.appendChild(opt);
+  }
+  if (!found) {
+    const opt = document.createElement('option');
+    opt.value = currentVal;
+    opt.textContent = formatTime(currentVal);
+    opt.selected = true;
+    sel.appendChild(opt);
+  }
+  sel.addEventListener('mousedown', e=>e.stopPropagation());
+  sel.addEventListener('change', e => onChange(parseInt(e.target.value)));
+  return sel;
+}
+
+// ═══════════════════════════════════════════════════════════════
+// EDGE RENDERING
+// ═══════════════════════════════════════════════════════════════
+function renderEdges(stats) {
+  const svg = document.getElementById('svg-edges');
+  svg.innerHTML = '';
+
+  const defs = document.createElementNS('http://www.w3.org/2000/svg','defs');
+  defs.innerHTML = `
+    <marker id="arr-blue" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+      <polygon points="0 0,8 3,0 6" fill="#58a6ff" opacity=".8"/></marker>
+    <marker id="arr-green" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+      <polygon points="0 0,8 3,0 6" fill="#3fb950" opacity=".8"/></marker>
+    <marker id="arr-orange" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+      <polygon points="0 0,8 3,0 6" fill="#f0883e" opacity=".8"/></marker>`;
+  svg.appendChild(defs);
+
+  const wrapRect = document.getElementById('canvas-wrap').getBoundingClientRect();
+
+  function clientToSvg(cx, cy) {
+    return {
+      x: (cx - wrapRect.left - panX) / scale + 2000,
+      y: (cy - wrapRect.top  - panY) / scale + 2000,
+    };
+  }
+
+  for (const edge of Object.values(appState.edges)) {
+    const fromCard = document.getElementById(`card-${edge.fromNode}`);
+    const toCard   = document.getElementById(`card-${edge.toNode}`);
+    if (!fromCard || !toCard) continue;
+
+    // Find the output port row on source
+    const srcPortRow = fromCard.querySelector(`.port-row.output-side[data-material="${edge.fromMaterial}"]`);
+    // Find the input port row on consumer
+    const dstPortRow = toCard.querySelector(`.port-row.input-side[data-material="${edge.toMaterial}"]`);
+    if (!srcPortRow || !dstPortRow) continue;
+
+    const srcRect = fromCard.getBoundingClientRect();
+    const dstRect = toCard.getBoundingClientRect();
+    const srcRowRect = srcPortRow.getBoundingClientRect();
+    const dstRowRect = dstPortRow.getBoundingClientRect();
+
+    const p1 = clientToSvg(srcRect.right, (srcRowRect.top + srcRowRect.bottom)/2);
+    const p2 = clientToSvg(dstRect.left,  (dstRowRect.top + dstRowRect.bottom)/2);
+
+    const dx = Math.abs(p2.x - p1.x);
+    const ctrl = Math.max(60, dx * 0.45);
+    const d = `M ${p1.x} ${p1.y} C ${p1.x+ctrl} ${p1.y}, ${p2.x-ctrl} ${p2.y}, ${p2.x} ${p2.y}`;
+
+    const isByproduct = (edge.mode || 'auto') === 'byproduct';
+    const isFromInput = appState.nodes[edge.fromNode]?.type === 'input';
+    const color = isByproduct ? '#f0883e' : isFromInput ? '#3fb950' : '#58a6ff';
+    const marker = isByproduct ? 'url(#arr-orange)' : isFromInput ? 'url(#arr-green)' : 'url(#arr-blue)';
+
+    const hitPath = document.createElementNS('http://www.w3.org/2000/svg','path');
+    hitPath.setAttribute('d', d);
+    hitPath.setAttribute('fill','none');
+    hitPath.setAttribute('stroke','transparent');
+    hitPath.setAttribute('stroke-width','12');
+    hitPath.classList.add('edge-hit');
+    hitPath.dataset.edgeId = edge.id;
+    hitPath.addEventListener('click', (ev) => {
+      ev.stopPropagation();
+      openEdgePopup(edge.id, ev.clientX, ev.clientY);
+    });
+    hitPath.addEventListener('contextmenu', (ev) => {
+      ev.preventDefault(); ev.stopPropagation();
+      showEdgeContextMenu(edge.id, ev.clientX, ev.clientY);
+    });
+    svg.appendChild(hitPath);
+
+    const path = document.createElementNS('http://www.w3.org/2000/svg','path');
+    path.setAttribute('d', d);
+    path.setAttribute('fill', 'none');
+    path.setAttribute('stroke', color);
+    path.setAttribute('stroke-width', '1.5');
+    path.setAttribute('opacity', '0.65');
+    path.setAttribute('marker-end', marker);
+    if (isByproduct) path.setAttribute('stroke-dasharray', '6,3');
+    path.style.pointerEvents = 'none';
+    path.classList.add('edge-path');
+    path.dataset.edgeId = edge.id;
+    svg.appendChild(path);
+
+    // Edge label
+    const mx = (p1.x + p2.x) / 2;
+    const my = (p1.y + p2.y) / 2;
+    const rf = getResolvedFlow(edge.id);
+    const edgeMode = edge.mode || 'auto';
+    const modeLabel = edgeMode === 'auto' ? 'AUTO' : edgeMode === 'byproduct' ? 'SURPLUS' : '';
+    if (rf.flow > 0) {
+      const labelG = addSvgLabel(svg, mx, my,
+        `${modeLabel ? modeLabel+' ' : ''}${fmt(rf.flow)} ${matName(edge.fromMaterial)}`,
+        `per ${formatTime(rf.interval)}`
+      );
+      if (labelG) { labelG.classList.add('edge-label'); labelG.dataset.edgeId = edge.id; }
+    } else {
+      const labelG = addSvgLabel(svg, mx, my,
+        modeLabel ? `${modeLabel} · 0` : '⚠ 0 flow',
+        'click to configure'
+      );
+      if (labelG) { labelG.classList.add('edge-label'); labelG.dataset.edgeId = edge.id; }
+    }
+  }
+}
+
+function addSvgLabel(svg, x, y, line1, line2) {
+  const g = document.createElementNS('http://www.w3.org/2000/svg','g');
+  const lines = [line1, line2].filter(Boolean);
+  const lh = 12, pad = 4;
+  const w = Math.max(...lines.map(l=>l.length*5.5)) + pad*2;
+  const h = lines.length * lh + pad;
+
+  const bg = document.createElementNS('http://www.w3.org/2000/svg','rect');
+  bg.setAttribute('x', x - w/2); bg.setAttribute('y', y - h/2);
+  bg.setAttribute('width', w); bg.setAttribute('height', h);
+  bg.setAttribute('fill','#0d1117'); bg.setAttribute('rx','3'); bg.setAttribute('opacity','.85');
+  g.appendChild(bg);
+
+  lines.forEach((ln,i) => {
+    const t = document.createElementNS('http://www.w3.org/2000/svg','text');
+    t.setAttribute('x', x); t.setAttribute('y', y - h/2 + pad + (i+.85)*lh);
+    t.setAttribute('text-anchor','middle');
+    t.setAttribute('fill', i===0?'#79c0ff':'#6e7681');
+    t.setAttribute('font-size','9');
+    t.setAttribute('font-family','JetBrains Mono,Fira Code,Consolas,monospace');
+    t.textContent = ln;
+    g.appendChild(t);
+  });
+  svg.appendChild(g);
+  return g;
+}
+
+// ═══════════════════════════════════════════════════════════════
+// SUMMARY PANEL
+// ═══════════════════════════════════════════════════════════════
+function renderSummary(stats) {
+  const body = document.getElementById('sum-body');
+  const nodeIds = Object.keys(appState.nodes);
+  if (!nodeIds.length) {
+    body.innerHTML = '<div class="sum-empty">Add nodes to begin planning.</div>';
+    return;
+  }
+
+  let html = '';
+
+  // Outputs
+  const outputNodes = nodeIds.filter(id => appState.nodes[id].type === 'output');
+  if (outputNodes.length) {
+    html += `<div class="sum-sec">Output Demands</div>`;
+    for (const nid of outputNodes) {
+      const n = appState.nodes[nid];
+      const incoming = getIncomingEdges(nid);
+      let connPerSec = 0;
+      for (const e of incoming) {
+        const rf = getResolvedFlow(e.id);
+        connPerSec += rf.flow / rf.interval;
+      }
+      const connPerI = connPerSec * n.intervalSec;
+      const cls = connPerI >= n.desiredAmount - 0.001 ? 'green' : 'red';
+      html += sumRow(matName(n.materialKey), `<span class="${cls}">${fmt(connPerI)}/${fmt(n.desiredAmount)}</span> per ${formatTime(n.intervalSec)}`);
+    }
+  }
+
+  // Production facilities
+  const prodNodes = nodeIds.filter(id => appState.nodes[id].type === 'production');
+  if (prodNodes.length) {
+    html += `<div class="sum-sec">Facilities</div>`;
+    for (const nid of prodNodes) {
+      const n = appState.nodes[nid];
+      const r = getRecipeForNode(nid);
+      if (!r) continue;
+      const s = stats[nid] || {};
+      const loc = r.upgradeName ? `${r.buildingName} (${r.upgradeName})` : r.buildingName;
+      html += sumRow(loc, `<span class="facilities-badge">${s.facilities||0}×</span> Q:${n.queues||1}`);
+    }
+  }
+
+  // Power
+  let totalPower = 0;
+  for (const nid of prodNodes) {
+    totalPower += (stats[nid]?.power || 0);
+  }
+  if (totalPower !== 0) {
+    html += `<div class="sum-sec">Power</div>`;
+    html += sumRow('Total', `${totalPower} MW`, totalPower < 0 ? 'red' : 'green');
+  }
+
+  // Input sources
+  const inputNodes = nodeIds.filter(id => appState.nodes[id].type === 'input');
+  if (inputNodes.length) {
+    html += `<div class="sum-sec">Input Sources (collected)</div>`;
+    for (const nid of inputNodes) {
+      const n = appState.nodes[nid];
+      const outgoing = getOutgoingEdges(nid);
+      let totalAllocPerSec = 0;
+      for (const e of outgoing) {
+        const rf = getResolvedFlow(e.id);
+        totalAllocPerSec += rf.flow / rf.interval;
+      }
+      const totalAllocPerInterval = totalAllocPerSec * n.intervalSec;
+      html += sumRow(matName(n.materialKey), `${fmt(totalAllocPerInterval)} per ${formatTime(n.intervalSec)}`, 'amber');
+    }
+  }
+
+  // Unresolved: production nodes with inputs that have 0 connected
+  const unresolved = [];
+  for (const nid of prodNodes) {
+    const r = getRecipeForNode(nid);
+    if (!r) continue;
+    for (const matKey of Object.keys(r.inputs)) {
+      const { neededPerSec, connectedPerSec } = getInputStatus(nid, matKey, stats);
+      if (neededPerSec > 0 && connectedPerSec < 0.0001) {
+        unresolved.push({ nid, matKey });
+      }
+    }
+  }
+  if (unresolved.length) {
+    html += `<div class="sum-sec" style="color:#ff7b72">Unresolved Inputs (${unresolved.length})</div>`;
+    for (const { nid, matKey } of unresolved) {
+      const r = getRecipeForNode(nid);
+      const loc = r ? (r.upgradeName ? `${r.buildingName} (${r.upgradeName})` : r.buildingName) : '?';
+      html += sumRow(`${loc} → ${matName(matKey)}`, '0', 'red');
+    }
+  }
+
+  body.innerHTML = html;
+}
+
+function sumRow(name, val, cls='') {
+  return `<div class="sum-row"><span class="sum-name">${name}</span><span class="sum-val ${cls}">${val}</span></div>`;
+}
+
+function fmt(n) {
+  if (n==null||isNaN(n)) return '0';
+  if (n>=1e6) return (n/1e6).toFixed(2)+'M';
+  if (n>=1000) return (n/1000).toFixed(1)+'k';
+  return n%1===0 ? String(n) : n.toFixed(2);
+}
+
+// ═══════════════════════════════════════════════════════════════
+// CONTEXT MENU (shadcn-style)
+// ═══════════════════════════════════════════════════════════════
+function showNodeContextMenu(nodeId, x, y) {
+  closeAllPopups();
+  const menu = document.getElementById('ctx-menu');
+  const node = appState.nodes[nodeId];
+  let html = '';
+
+  html += `<div class="ctx-label">${node.type.toUpperCase()} NODE</div>`;
+
+  if (node.type === 'production') {
+    const recipe = getRecipeForNode(nodeId);
+    if (recipe) {
+      html += `<div class="ctx-item" data-action="duplicate"><span class="icon">⧉</span>Duplicate Node</div>`;
+      html += `<div class="ctx-sep"></div>`;
+      html += `<div class="ctx-label">Outputs</div>`;
+      for (const matKey of Object.keys(recipe.outputs)) {
+        html += `<div class="ctx-item" data-action="add-output" data-mat="${matKey}"><span class="icon">↗</span>Add Output Sink for ${matName(matKey)}</div>`;
+      }
+      html += `<div class="ctx-label">Inputs</div>`;
+      for (const matKey of Object.keys(recipe.inputs)) {
+        html += `<div class="ctx-item" data-action="add-input" data-mat="${matKey}"><span class="icon">↙</span>Add Source for ${matName(matKey)}</div>`;
+        html += `<div class="ctx-item" data-action="add-facility-for" data-mat="${matKey}"><span class="icon">⚙</span>Add Facility for ${matName(matKey)}</div>`;
+      }
+    }
+  } else if (node.type === 'output') {
+    const matKey = node.materialKey;
+    html += `<div class="ctx-label">Source ${matName(matKey)}</div>`;
+    html += `<div class="ctx-item" data-action="add-input" data-mat="${matKey}"><span class="icon">↙</span>Add Source Node</div>`;
+    html += `<div class="ctx-item" data-action="add-facility-for" data-mat="${matKey}"><span class="icon">⚙</span>Add Facility that produces this</div>`;
+    // Show recipes that produce this material
+    const recipes = recipeIndex[matKey] || [];
+    if (recipes.length) {
+      html += `<div class="ctx-sep"></div>`;
+      html += `<div class="ctx-label">Create Facility (${recipes.length} recipe${recipes.length>1?'s':''})</div>`;
+      for (const r of recipes.slice(0, 8)) {
+        const loc = r.upgradeName ? `${r.buildingName} › ${r.upgradeName}` : r.buildingName;
+        html += `<div class="ctx-item" data-action="new-facility-connect" data-recipe="${r.id}" data-mat="${matKey}"><span class="icon">+</span>${loc}</div>`;
+      }
+      if (recipes.length > 8) {
+        html += `<div class="ctx-item" data-action="open-resolver" data-mat="${matKey}"><span class="icon">…</span>Show all ${recipes.length} recipes</div>`;
+      }
+    }
+  } else if (node.type === 'input') {
+    html += `<div class="ctx-item" data-action="duplicate-input"><span class="icon">⧉</span>Duplicate Source Node</div>`;
+  }
+
+  html += `<div class="ctx-sep"></div>`;
+  html += `<div class="ctx-item danger" data-action="delete"><span class="icon">✕</span>Delete Node</div>`;
+
+  menu.innerHTML = html;
+  menu.style.left = x + 'px';
+  menu.style.top = y + 'px';
+  menu.classList.add('visible');
+
+  menu.querySelectorAll('.ctx-item').forEach(item => {
+    item.addEventListener('click', () => {
+      const action = item.dataset.action;
+      const mat = item.dataset.mat;
+      const pos = appState.nodes[nodeId]?.pos || {x:400,y:300};
+      if (action === 'delete') {
+        removeNode(nodeId);
+      } else if (action === 'duplicate') {
+        const nid = addProductionNode(getRecipeForNode(nodeId), pos.x + 40, pos.y + 40);
+        appState.nodes[nid].queues = node.queues;
+      } else if (action === 'duplicate-input') {
+        const nid = addInputNode(node.materialKey, pos.x + 40, pos.y + 40);
+        appState.nodes[nid].supplyAmount = node.supplyAmount;
+        appState.nodes[nid].intervalSec = node.intervalSec;
+      } else if (action === 'add-output' && mat) {
+        const outId = addOutputNode(mat, pos.x + 350, pos.y);
+        addEdge(nodeId, mat, outId, mat, 0, 'auto');
+      } else if (action === 'add-input' && mat) {
+        const inId = addInputNode(mat, pos.x - 350, pos.y);
+        addEdge(inId, mat, nodeId, mat, 0, 'auto');
+      } else if (action === 'add-facility-for' && mat) {
+        // Open the resolver to pick a recipe
+        closeAllPopups();
+        render();
+        setTimeout(() => {
+          const card = document.getElementById(`card-${nodeId}`);
+          const row = card?.querySelector(`.port-row[data-material="${mat}"]`);
+          if (row) openResolver(nodeId, mat, row);
+        }, 50);
+        return;
+      } else if (action === 'new-facility-connect' && item.dataset.recipe && mat) {
+        const recipe = allRecipesList.find(r => r.id === item.dataset.recipe);
+        if (recipe) {
+          const nid = addProductionNode(recipe, pos.x - 380, pos.y);
+          addEdge(nid, mat, nodeId, mat, 0, 'auto');
+        }
+      } else if (action === 'open-resolver' && mat) {
+        closeAllPopups();
+        render();
+        setTimeout(() => {
+          const card = document.getElementById(`card-${nodeId}`);
+          const row = card?.querySelector(`.port-row[data-material="${mat}"]`);
+          if (row) openResolver(nodeId, mat, row);
+        }, 50);
+        return;
+      }
+      closeAllPopups();
+      render();
+    });
+  });
+}
+
+function showEdgeContextMenu(edgeId, x, y) {
+  closeAllPopups();
+  const menu = document.getElementById('ctx-menu');
+  menu.innerHTML = `
+    <div class="ctx-label">EDGE</div>
+    <div class="ctx-item" data-action="edit"><span class="icon">✎</span>Edit Flow</div>
+    <div class="ctx-sep"></div>
+    <div class="ctx-item danger" data-action="delete"><span class="icon">✕</span>Delete Edge</div>
+  `;
+  menu.style.left = x + 'px';
+  menu.style.top = y + 'px';
+  menu.classList.add('visible');
+
+  menu.querySelectorAll('.ctx-item').forEach(item => {
+    item.addEventListener('click', () => {
+      if (item.dataset.action === 'delete') {
+        removeEdge(edgeId);
+        render();
+      } else if (item.dataset.action === 'edit') {
+        openEdgePopup(edgeId, x, y);
+      }
+      menu.classList.remove('visible');
+    });
+  });
+}
+
+function showCanvasContextMenu(x, y, canvasX, canvasY) {
+  closeAllPopups();
+  const menu = document.getElementById('ctx-menu');
+  menu.innerHTML = `
+    <div class="ctx-label">CANVAS</div>
+    <div class="ctx-item" data-action="add-node"><span class="icon">+</span>Add Node Here</div>
+    <div class="ctx-item" data-action="auto-layout"><span class="icon">⊞</span>Auto Layout</div>
+    <div class="ctx-item" data-action="center"><span class="icon">◎</span>Center View</div>
+  `;
+  menu.style.left = x + 'px';
+  menu.style.top = y + 'px';
+  menu.classList.add('visible');
+
+  menu.querySelectorAll('.ctx-item').forEach(item => {
+    item.addEventListener('click', () => {
+      if (item.dataset.action === 'add-node') {
+        openAddNodePopup(x, y, canvasX, canvasY);
+      } else if (item.dataset.action === 'auto-layout') {
+        autoLayout();
+      } else if (item.dataset.action === 'center') {
+        centerView();
+      }
+      menu.classList.remove('visible');
+    });
+  });
+}
+
+// ═══════════════════════════════════════════════════════════════
+// EDGE POPUP
+// ═══════════════════════════════════════════════════════════════
+let activeEdgePopup = null;
+
+function openEdgePopup(edgeId, x, y) {
+  closeAllPopups();
+  const edge = appState.edges[edgeId];
+  if (!edge) return;
+
+  activeEdgePopup = edgeId;
+  const popup = document.getElementById('edge-popup');
+  const title = document.getElementById('ep-title');
+  const flowInput = document.getElementById('ep-flow');
+  const intervalSel = document.getElementById('ep-interval');
+  const modeSel = document.getElementById('ep-mode');
+  const manualFields = document.getElementById('ep-manual-fields');
+  const autoDisplay = document.getElementById('ep-auto-display');
+  const autoValue = document.getElementById('ep-auto-value');
+
+  title.textContent = `Flow: ${matName(edge.fromMaterial)}`;
+  modeSel.value = edge.mode || 'auto';
+  flowInput.value = edge.flowPerInterval || 0;
+
+  const edgeMode = edge.mode || 'auto';
+  const isManual = edgeMode === 'manual';
+  manualFields.style.display = isManual ? 'block' : 'none';
+  autoDisplay.style.display = isManual ? 'none' : 'flex';
+
+  if (!isManual) {
+    const rf = getResolvedFlow(edgeId);
+    const label = edgeMode === 'byproduct' ? 'Surplus' : 'Auto';
+    autoValue.textContent = rf.flow > 0
+      ? `${label}: ${fmt(rf.flow)} per ${formatTime(rf.interval)}`
+      : edgeMode === 'byproduct' ? 'No surplus available' : 'No downstream demand yet';
+  }
+
+  // Populate interval select
+  const currentInterval = edge.intervalSec || getEdgeInterval(edge);
+  intervalSel.innerHTML = '';
+  const intervals = [
+    [3600,'1h'],[7200,'2h'],[21600,'6h'],[43200,'12h'],
+    [86400,'24h'],[172800,'48h'],[259200,'72h'],
+  ];
+  let found = false;
+  for (const [v, label] of intervals) {
+    const opt = document.createElement('option');
+    opt.value = v; opt.textContent = label;
+    if (v === currentInterval) { opt.selected = true; found = true; }
+    intervalSel.appendChild(opt);
+  }
+  if (!found) {
+    const opt = document.createElement('option');
+    opt.value = currentInterval;
+    opt.textContent = formatTime(currentInterval);
+    opt.selected = true;
+    intervalSel.appendChild(opt);
+  }
+
+  popup.style.left = Math.min(x, window.innerWidth - 280) + 'px';
+  popup.style.top  = Math.min(y, window.innerHeight - 200) + 'px';
+  popup.classList.add('visible');
+}
+
+document.getElementById('ep-mode')?.addEventListener('change', () => {
+  const isManual = document.getElementById('ep-mode').value === 'manual';
+  document.getElementById('ep-manual-fields').style.display = isManual ? 'block' : 'none';
+  document.getElementById('ep-auto-display').style.display = isManual ? 'none' : 'flex';
+});
+
+document.getElementById('ep-ok')?.addEventListener('click', () => {
+  if (!activeEdgePopup) return;
+  const edge = appState.edges[activeEdgePopup];
+  if (edge) {
+    const newMode = document.getElementById('ep-mode').value;
+    edge.mode = newMode;
+    if (newMode === 'manual') {
+      edge.flowPerInterval = Math.max(0, parseFloat(document.getElementById('ep-flow').value) || 0);
+      edge.intervalSec = parseInt(document.getElementById('ep-interval').value) || 86400;
+    }
+  }
+  document.getElementById('edge-popup').classList.remove('visible');
+  activeEdgePopup = null;
+  render();
+});
+
+document.getElementById('ep-cancel')?.addEventListener('click', () => {
+  document.getElementById('edge-popup').classList.remove('visible');
+  activeEdgePopup = null;
+});
+
+document.getElementById('ep-delete')?.addEventListener('click', () => {
+  if (activeEdgePopup) {
+    removeEdge(activeEdgePopup);
+    document.getElementById('edge-popup').classList.remove('visible');
+    activeEdgePopup = null;
+    render();
+  }
+});
+
+// ═══════════════════════════════════════════════════════════════
+// INPUT RESOLVER POPUP
+// ═══════════════════════════════════════════════════════════════
+function openResolver(consNodeId, inputMaterialKey, anchorEl) {
+  closeAllPopups();
+  const popup = document.getElementById('resolver');
+  const title = document.getElementById('resolver-title');
+  const sub   = document.getElementById('resolver-subtitle');
+  const body  = document.getElementById('resolver-body');
+
+  title.textContent = `Source for: ${matName(inputMaterialKey)}`;
+
+  // Show existing connections
+  const existing = getIncomingEdges(consNodeId).filter(e => e.toMaterial === inputMaterialKey);
+  sub.textContent = existing.length ? `${existing.length} source(s) connected` : 'No source connected';
+
+  const recipes = recipeIndex[inputMaterialKey] || [];
+  let html = '';
+
+  // Option: Create a source (input) node
+  html += `<div class="resolver-section">
+    <div class="resolver-sec-label">Collect from field / external</div>
+    <div class="resolver-opt collected" data-action="new-input">
+      <div class="resolver-opt-title">+ Create Source Node</div>
+      <div class="resolver-opt-sub">Add a green source node for ${matName(inputMaterialKey)}</div>
+    </div>
+  </div>`;
+
+  // Option: Connect to existing nodes that produce this material
+  const existingProducers = Object.keys(appState.nodes).filter(nid => {
+    if (nid === consNodeId) return false;
+    const n = appState.nodes[nid];
+    if (n.type === 'input' && n.materialKey === inputMaterialKey) return true;
+    if (n.type === 'production') {
+      const r = getRecipeForNode(nid);
+      return r && r.outputs[inputMaterialKey];
+    }
+    return false;
+  });
+
+  if (existingProducers.length) {
+    html += `<div class="resolver-section"><div class="resolver-sec-label">Connect to existing node</div>`;
+    for (const nid of existingProducers) {
+      const n = appState.nodes[nid];
+      let label, sub2;
+      if (n.type === 'input') {
+        label = `Source: ${matName(n.materialKey)}`;
+        sub2 = 'Input source node';
+      } else {
+        const r = getRecipeForNode(nid);
+        const loc = r ? (r.upgradeName ? `${r.buildingName} (${r.upgradeName})` : r.buildingName) : '?';
+        label = `→ ${loc}`;
+        sub2 = `Produces ${matName(inputMaterialKey)}`;
+      }
+      // Check if already connected
+      const alreadyConnected = existing.some(e => e.fromNode === nid);
+      html += `<div class="resolver-opt ${alreadyConnected?'collected':''}" data-action="connect-existing" data-node="${nid}">
+        <div class="resolver-opt-title">${label}</div>
+        <div class="resolver-opt-sub">${sub2}${alreadyConnected?' (already connected)':''}</div>
+      </div>`;
+    }
+    html += `</div>`;
+  }
+
+  // Options: New facility for each recipe that produces this material
+  if (recipes.length) {
+    html += `<div class="resolver-section"><div class="resolver-sec-label">Create new facility</div>`;
+    for (const r of recipes) {
+      const loc = r.upgradeName ? `${r.buildingName} (${r.upgradeName})` : r.buildingName;
+      const outStr = Object.entries(r.outputs).map(([k,q]) => `${q}× ${matName(k)}`).join(', ');
+      const inStr = Object.entries(r.inputs).map(([k,q]) => `${q}× ${matName(k)}`).join(', ');
+      html += `<div class="resolver-opt" data-action="new-facility" data-recipe="${r.id}">
+        <div class="resolver-opt-title">${loc}</div>
+        <div class="resolver-opt-sub" style="color:#7ee787">→ ${outStr} / ${formatTime(r.cycleTime)}</div>
+        ${inStr ? `<div class="resolver-opt-sub">Needs: ${inStr}</div>` : ''}
+      </div>`;
+    }
+    html += `</div>`;
+  }
+
+  body.innerHTML = html;
+
+  // Position near anchor
+  const rect = anchorEl.getBoundingClientRect();
+  popup.style.left = Math.min(rect.left, window.innerWidth - 400) + 'px';
+  popup.style.top  = (rect.bottom + 4) + 'px';
+  if (parseFloat(popup.style.top) + 440 > window.innerHeight) {
+    popup.style.top = Math.max(0, rect.top - 440 - 4) + 'px';
+  }
+  popup.classList.add('visible');
+
+  // Wire options
+  body.querySelectorAll('.resolver-opt').forEach(opt => {
+    opt.addEventListener('click', () => {
+      const action = opt.dataset.action;
+      const consPos = appState.nodes[consNodeId]?.pos || {x:400,y:300};
+
+      if (action === 'new-input') {
+        const nid = addInputNode(inputMaterialKey, consPos.x - 380, consPos.y);
+        addEdge(nid, inputMaterialKey, consNodeId, inputMaterialKey, 0, 'auto');
+        closeResolver();
+        render();
+      } else if (action === 'connect-existing') {
+        const srcId = opt.dataset.node;
+        const alreadyExists = Object.values(appState.edges).find(e =>
+          e.fromNode === srcId && e.fromMaterial === inputMaterialKey &&
+          e.toNode === consNodeId && e.toMaterial === inputMaterialKey
+        );
+        if (!alreadyExists) {
+          addEdge(srcId, inputMaterialKey, consNodeId, inputMaterialKey, 0, 'auto');
+          closeResolver();
+          render();
+        } else {
+          closeResolver();
+        }
+      } else if (action === 'new-facility') {
+        const recipe = allRecipesList.find(r => r.id === opt.dataset.recipe);
+        if (recipe) {
+          const nid = addProductionNode(recipe, consPos.x - 380, consPos.y);
+          addEdge(nid, inputMaterialKey, consNodeId, inputMaterialKey, 0, 'auto');
+          closeResolver();
+          render();
+        }
+      }
+    });
+  });
+}
+
+function closeResolver() {
+  document.getElementById('resolver').classList.remove('visible');
+}
+
+document.getElementById('resolver-close')?.addEventListener('click', closeResolver);
+
+// ═══════════════════════════════════════════════════════════════
+// ADD NODE POPUP
+// ═══════════════════════════════════════════════════════════════
+let addNodePos = { x: 400, y: 300 };
+let addNodeTab = 'production';
+
+function openAddNodePopup(screenX, screenY, canvasX, canvasY) {
+  closeAllPopups();
+  addNodePos = { x: canvasX || 400, y: canvasY || 300 };
+
+  const popup = document.getElementById('add-node-popup');
+  popup.style.left = Math.min(screenX || 200, window.innerWidth - 420) + 'px';
+  popup.style.top  = Math.min(screenY || 100, window.innerHeight - 520) + 'px';
+  popup.classList.add('visible');
+  document.getElementById('anp-search').value = '';
+  document.getElementById('anp-search').focus();
+  renderAddNodeList();
+}
+
+function renderAddNodeList() {
+  const body = document.getElementById('anp-body');
+  const q = document.getElementById('anp-search').value.toLowerCase().trim();
+
+  let html = '';
+
+  if (addNodeTab === 'production') {
+    let recipes = allRecipesList;
+    if (q) {
+      recipes = recipes.filter(r => {
+        const searchStr = `${r.buildingName} ${r.upgradeName||''} ${Object.keys(r.outputs).map(k=>matName(k)).join(' ')} ${Object.keys(r.inputs).map(k=>matName(k)).join(' ')}`.toLowerCase();
+        return searchStr.includes(q);
+      });
+    }
+    recipes = recipes.slice(0, 80);
+    for (const r of recipes) {
+      const loc = r.upgradeName ? `${r.buildingName} › ${r.upgradeName}` : r.buildingName;
+      const outStr = Object.entries(r.outputs).map(([k,q])=>`${q}× ${matName(k)}`).join(', ');
+      const inStr = Object.entries(r.inputs).map(([k,q])=>`${q}× ${matName(k)}`).join(', ');
+      html += `<div class="anp-opt" data-recipe-id="${r.id}">
+        <div class="anp-opt-title">${loc}</div>
+        <div class="anp-opt-sub" style="color:#7ee787">→ ${outStr} / ${formatTime(r.cycleTime)}</div>
+        ${inStr ? `<div class="anp-opt-sub">Needs: ${inStr}</div>` : ''}
+      </div>`;
+    }
+    if (!recipes.length) html = `<div style="padding:20px;text-align:center;color:#6e7681">No recipes found.</div>`;
+  } else if (addNodeTab === 'output') {
+    let mats = Object.keys(materialNames).sort((a,b) => matName(a).localeCompare(matName(b)));
+    if (q) mats = mats.filter(k => matName(k).toLowerCase().includes(q) || k.toLowerCase().includes(q));
+    mats = mats.slice(0, 80);
+    for (const k of mats) {
+      html += `<div class="anp-opt" data-output-mat="${k}">
+        <div class="anp-opt-title" style="color:#f0883e">OUTPUT: ${matName(k)}</div>
+        <div class="anp-opt-sub">Demand sink — define desired rate</div>
+      </div>`;
+    }
+  } else if (addNodeTab === 'input') {
+    let mats = Object.keys(materialNames).sort((a,b) => matName(a).localeCompare(matName(b)));
+    if (q) mats = mats.filter(k => matName(k).toLowerCase().includes(q) || k.toLowerCase().includes(q));
+    mats = mats.slice(0, 80);
+    for (const k of mats) {
+      html += `<div class="anp-opt" data-input-mat="${k}">
+        <div class="anp-opt-title" style="color:#3fb950">SOURCE: ${matName(k)}</div>
+        <div class="anp-opt-sub">Collected / external supply</div>
+      </div>`;
+    }
+  }
+
+  body.innerHTML = html;
+
+  // Wire clicks
+  body.querySelectorAll('.anp-opt').forEach(opt => {
+    opt.addEventListener('click', () => {
+      if (opt.dataset.recipeId) {
+        const r = allRecipesList.find(r => r.id === opt.dataset.recipeId);
+        if (r) addProductionNode(r, addNodePos.x, addNodePos.y);
+      } else if (opt.dataset.outputMat) {
+        addOutputNode(opt.dataset.outputMat, addNodePos.x, addNodePos.y);
+      } else if (opt.dataset.inputMat) {
+        addInputNode(opt.dataset.inputMat, addNodePos.x, addNodePos.y);
+      }
+      document.getElementById('add-node-popup').classList.remove('visible');
+      render();
+    });
+  });
+}
+
+document.getElementById('anp-search')?.addEventListener('input', renderAddNodeList);
+document.getElementById('anp-close')?.addEventListener('click', () => {
+  document.getElementById('add-node-popup').classList.remove('visible');
+});
+document.querySelectorAll('.anp-tab').forEach(tab => {
+  tab.addEventListener('click', () => {
+    document.querySelectorAll('.anp-tab').forEach(t => t.classList.remove('active'));
+    tab.classList.add('active');
+    addNodeTab = tab.dataset.tab;
+    renderAddNodeList();
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════
+// PORT DRAG → CONNECT
+// ═══════════════════════════════════════════════════════════════
+let dragPort = null; // { nodeId, material, role:'input'|'output', startX, startY }
+
+function onPortDragStart(e) {
+  const dot = e.target.closest('.port-dot');
+  if (!dot) return;
+  e.preventDefault(); e.stopPropagation();
+
+  const nodeId = dot.dataset.nodeId;
+  const material = dot.dataset.material;
+  const role = dot.dataset.role;
+  if (!nodeId || !material || !role) return;
+
+  const rect = dot.getBoundingClientRect();
+  const cx = (rect.left + rect.right)/2;
+  const cy = (rect.top + rect.bottom)/2;
+
+  dragPort = { nodeId, material, role, startScreenX: cx, startScreenY: cy };
+
+  const rb = document.getElementById('rubber-band');
+  const wrapRect = document.getElementById('canvas-wrap').getBoundingClientRect();
+  const sx = (cx - wrapRect.left - panX) / scale + 2000;
+  const sy = (cy - wrapRect.top - panY) / scale + 2000;
+  rb.setAttribute('x1', sx);
+  rb.setAttribute('y1', sy);
+  rb.setAttribute('x2', sx);
+  rb.setAttribute('y2', sy);
+  rb.setAttribute('opacity', '0.7');
+}
+
+function onPortDragMove(e) {
+  if (!dragPort) return;
+  const rb = document.getElementById('rubber-band');
+  const wrapRect = document.getElementById('canvas-wrap').getBoundingClientRect();
+  const mx = (e.clientX - wrapRect.left - panX) / scale + 2000;
+  const my = (e.clientY - wrapRect.top - panY) / scale + 2000;
+  rb.setAttribute('x2', mx);
+  rb.setAttribute('y2', my);
+}
+
+function onPortDragEnd(e) {
+  if (!dragPort) return;
+  const rb = document.getElementById('rubber-band');
+  rb.setAttribute('opacity', '0');
+
+  // Find target port under cursor
+  const target = document.elementFromPoint(e.clientX, e.clientY);
+  const dot = target?.closest?.('.port-dot');
+
+  if (dot && dot.dataset.nodeId && dot.dataset.material && dot.dataset.role) {
+    const tNodeId = dot.dataset.nodeId;
+    const tMaterial = dot.dataset.material;
+    const tRole = dot.dataset.role;
+
+    // Must connect output → input
+    let fromNode, fromMat, toNode, toMat;
+    if (dragPort.role === 'output' && tRole === 'input') {
+      fromNode = dragPort.nodeId; fromMat = dragPort.material;
+      toNode = tNodeId; toMat = tMaterial;
+    } else if (dragPort.role === 'input' && tRole === 'output') {
+      fromNode = tNodeId; fromMat = tMaterial;
+      toNode = dragPort.nodeId; toMat = dragPort.material;
+    }
+
+    if (fromNode && toNode && fromNode !== toNode && fromMat === toMat) {
+      // Check no duplicate edge
+      const existing = Object.values(appState.edges).find(e =>
+        e.fromNode === fromNode && e.fromMaterial === fromMat &&
+        e.toNode === toNode && e.toMaterial === toMat
+      );
+      if (!existing) {
+        addEdge(fromNode, fromMat, toNode, toMat, 0, 'auto');
+        render();
+      }
+    }
+  }
+
+  dragPort = null;
+}
+
+// ═══════════════════════════════════════════════════════════════
+// AUTO-LAYOUT (layered graph with crossing minimization)
+// ═══════════════════════════════════════════════════════════════
+function autoLayout() {
+  const nodeIds = Object.keys(appState.nodes);
+  if (!nodeIds.length) return;
+
+  // Step 1: Assign layers via longest-path from sinks (output nodes)
+  // Edges flow left→right (from sources to outputs)
+  const layer = {};
+  const visited = new Set();
+
+  function assignLayer(nid, d) {
+    if (layer[nid] !== undefined && layer[nid] >= d) return;
+    layer[nid] = d;
+    const incoming = getIncomingEdges(nid);
+    for (const e of incoming) {
+      if (appState.nodes[e.fromNode]) assignLayer(e.fromNode, d + 1);
+    }
+  }
+
+  // Start from output nodes, then any node with no outgoing edges
+  const sinks = nodeIds.filter(id => {
+    if (appState.nodes[id].type === 'output') return true;
+    return getOutgoingEdges(id).length === 0;
+  });
+  if (!sinks.length) sinks.push(nodeIds[0]);
+  for (const sid of sinks) assignLayer(sid, 0);
+
+  // Assign layer 0 to any disconnected nodes
+  for (const nid of nodeIds) {
+    if (layer[nid] === undefined) layer[nid] = 0;
+  }
+
+  // Group by layer
+  const maxLayer = Math.max(...Object.values(layer));
+  const layers = [];
+  for (let i = 0; i <= maxLayer; i++) layers.push([]);
+  for (const nid of nodeIds) layers[layer[nid]].push(nid);
+
+  // Reverse so layer 0 (sinks/outputs) is on the RIGHT
+  layers.reverse();
+
+  // Step 2: Barycenter ordering to minimize crossings
+  // Run multiple passes, alternating direction
+  function getBarycenter(nid, layerIdx, direction) {
+    const neighbors = [];
+    if (direction === 'forward') {
+      const outgoing = getOutgoingEdges(nid);
+      for (const e of outgoing) {
+        const tgtLayer = layers[layerIdx + 1];
+        if (tgtLayer) {
+          const idx = tgtLayer.indexOf(e.toNode);
+          if (idx >= 0) neighbors.push(idx);
+        }
+      }
+    } else {
+      const incoming = getIncomingEdges(nid);
+      for (const e of incoming) {
+        const srcLayer = layers[layerIdx - 1];
+        if (srcLayer) {
+          const idx = srcLayer.indexOf(e.fromNode);
+          if (idx >= 0) neighbors.push(idx);
+        }
+      }
+    }
+    if (!neighbors.length) return -1;
+    return neighbors.reduce((a, b) => a + b, 0) / neighbors.length;
+  }
+
+  for (let pass = 0; pass < 8; pass++) {
+    const dir = pass % 2 === 0 ? 'backward' : 'forward';
+    const start = dir === 'forward' ? 0 : layers.length - 1;
+    const end   = dir === 'forward' ? layers.length : -1;
+    const step  = dir === 'forward' ? 1 : -1;
+
+    for (let li = start; li !== end; li += step) {
+      const col = layers[li];
+      if (col.length <= 1) continue;
+      const scored = col.map(nid => ({
+        nid,
+        bc: getBarycenter(nid, li, dir === 'forward' ? 'backward' : 'forward'),
+      }));
+      // Sort by barycenter, keep original order for unconnected
+      scored.sort((a, b) => {
+        if (a.bc < 0 && b.bc < 0) return 0;
+        if (a.bc < 0) return 1;
+        if (b.bc < 0) return -1;
+        return a.bc - b.bc;
+      });
+      layers[li] = scored.map(s => s.nid);
+    }
+  }
+
+  // Step 3: Assign positions
+  const NODE_W = 340, NODE_H = 220, H_GAP = 120, V_GAP = 30;
+  const maxColSize = Math.max(...layers.map(l => l.length), 1);
+
+  for (let li = 0; li < layers.length; li++) {
+    const col = layers[li];
+    const x = 60 + li * (NODE_W + H_GAP);
+    const totalH = col.length * NODE_H + (col.length - 1) * V_GAP;
+    const startY = 60 + (maxColSize * (NODE_H + V_GAP) - totalH) / 2;
+    for (let i = 0; i < col.length; i++) {
+      appState.nodes[col[i]].pos = {
+        x: Math.round(x),
+        y: Math.round(startY + i * (NODE_H + V_GAP)),
+      };
+    }
+  }
+
+  render();
+  requestAnimationFrame(() => centerView());
+}
+
+// ═══════════════════════════════════════════════════════════════
+// CANVAS INTERACTIONS
+// ═══════════════════════════════════════════════════════════════
+let scale=1, panX=0, panY=0;
+let isPanning=false, panStartX=0, panStartY=0;
+let dragNode=null, dragOffX=0, dragOffY=0;
+
+function updateTransform() {
+  document.getElementById('canvas').style.transform = `translate(${panX}px,${panY}px) scale(${scale})`;
+  document.getElementById('zoom-indicator').textContent = Math.round(scale*100)+'%';
+}
+function centerView() {
+  const positions = Object.values(appState.nodes).map(n=>n.pos);
+  if (!positions.length) return;
+  const minX = Math.min(...positions.map(p=>p.x));
+  const maxX = Math.max(...positions.map(p=>p.x)) + 300;
+  const minY = Math.min(...positions.map(p=>p.y));
+  const maxY = Math.max(...positions.map(p=>p.y)) + 260;
+  const wrap = document.getElementById('canvas-wrap');
+  const vW = wrap.clientWidth, vH = wrap.clientHeight;
+  const sX = (vW-80)/(maxX-minX||1), sY = (vH-80)/(maxY-minY||1);
+  scale = Math.min(1, Math.min(sX, sY));
+  panX = (vW-(maxX-minX)*scale)/2 - minX*scale;
+  panY = 40 - minY*scale;
+  updateTransform();
+}
+
+function onWrapDown(e) {
+  if (e.button === 2) return; // context menu
+  if (e.target.closest('.port-dot')) {
+    onPortDragStart(e);
+    return;
+  }
+  if (e.target.closest('.node-card') || e.target.closest('#ctx-menu') ||
+      e.target.closest('#add-node-popup') || e.target.closest('#edge-popup') ||
+      e.target.closest('#summary-panel')) return;
+  closeAllPopups();
+  isPanning = true;
+  panStartX = e.clientX - panX;
+  panStartY = e.clientY - panY;
+  document.getElementById('canvas-wrap').classList.add('grabbing');
+}
+function onWrapMove(e) {
+  if (dragPort) {
+    onPortDragMove(e);
+    return;
+  }
+  if (isPanning) {
+    panX = e.clientX - panStartX;
+    panY = e.clientY - panStartY;
+    updateTransform();
+  }
+  if (dragNode) {
+    const x = (e.clientX - panX) / scale - dragOffX;
+    const y = (e.clientY - 48 - panY) / scale - dragOffY;
+    dragNode.style.left = x+'px';
+    dragNode.style.top  = y+'px';
+    const nid = dragNode.dataset.nodeId;
+    if (appState.nodes[nid]) appState.nodes[nid].pos = { x: Math.round(x), y: Math.round(y) };
+    requestAnimationFrame(() => renderEdges(computeNodeStats()));
+  }
+}
+function onWrapUp(e) {
+  if (dragPort) { onPortDragEnd(e); return; }
+  isPanning = false; dragNode = null;
+  document.getElementById('canvas-wrap').classList.remove('grabbing');
+}
+function onZoom(e) {
+  e.preventDefault();
+  const f = e.deltaY > 0 ? 0.9 : 1.1;
+  const ns = Math.max(.15, Math.min(3, scale*f));
+  const wrap = document.getElementById('canvas-wrap');
+  const rect = wrap.getBoundingClientRect();
+  const mx = e.clientX - rect.left, my = e.clientY - rect.top;
+  panX = mx - (mx-panX)*(ns/scale);
+  panY = my - (my-panY)*(ns/scale);
+  scale = ns;
+  updateTransform();
+}
+
+function addDragHandler(card, nodeId) {
+  card.addEventListener('mousedown', e => {
+    if (e.target.tagName==='SELECT'||e.target.tagName==='INPUT'||
+        e.target.tagName==='BUTTON'||e.target.closest('.port-dot')) return;
+    if (e.button!==0) return;
+    e.stopPropagation();
+    dragNode = card;
+    const rect = card.getBoundingClientRect();
+    dragOffX = (e.clientX - rect.left) / scale;
+    dragOffY = (e.clientY - rect.top)  / scale;
+  });
+}
+
+function closeAllPopups() {
+  document.getElementById('ctx-menu').classList.remove('visible');
+  document.getElementById('add-node-popup').classList.remove('visible');
+  document.getElementById('edge-popup').classList.remove('visible');
+  document.getElementById('resolver').classList.remove('visible');
+}
+
+// ═══════════════════════════════════════════════════════════════
+// SAVE / LOAD
+// ═══════════════════════════════════════════════════════════════
+function saveLayout() {
+  const state = {
+    version: 4,
+    nodes: appState.nodes,
+    edges: appState.edges,
+    _nodeCounter, _edgeCounter,
+  };
+  const json = JSON.stringify(state, null, 2);
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([json],{type:'application/json'}));
+  a.download = `foxholeflow_layout.json`;
+  a.click();
+  showToast('Layout exported as JSON file');
+}
+
+function loadLayout(json) {
+  try {
+    const state = JSON.parse(json);
+    appState.nodes = state.nodes || {};
+    appState.edges = state.edges || {};
+    _nodeCounter = state._nodeCounter || 0;
+    _edgeCounter = state._edgeCounter || 0;
+
+    // Ensure counters are at least max existing
+    const maxN = Object.keys(appState.nodes).map(id => parseInt(id.slice(1))||0).reduce((a,b)=>Math.max(a,b), 0);
+    const maxE = Object.keys(appState.edges).map(id => parseInt(id.slice(1))||0).reduce((a,b)=>Math.max(a,b), 0);
+    _nodeCounter = Math.max(_nodeCounter, maxN);
+    _edgeCounter = Math.max(_edgeCounter, maxE);
+
+    render();
+    requestAnimationFrame(() => centerView());
+    showToast('Layout imported!');
+  } catch(err) {
+    showToast('Error: Invalid JSON file');
+  }
+}
+
+function showToast(msg) {
+  const t = document.getElementById('toast');
+  t.textContent = msg; t.classList.add('show');
+  setTimeout(()=>t.classList.remove('show'), 2500);
+}
+
+// ═══════════════════════════════════════════════════════════════
+// INIT
+// ═══════════════════════════════════════════════════════════════
+async function init() {
+  try {
+    const resp = await fetch('./foxhole_planner_data.json');
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    parseData(await resp.json());
+
+    document.getElementById('loading').style.display = 'none';
+    ['toolbar','canvas-wrap','summary-panel','zoom-indicator']
+      .forEach(id=>document.getElementById(id).style.display =
+        id==='zoom-indicator'?'block':
+        id==='toolbar'?'flex':id==='canvas-wrap'?'block':'flex');
+
+    // Toolbar
+    document.getElementById('btn-add-node').addEventListener('click', (e) => {
+      const rect = e.target.getBoundingClientRect();
+      const canvasX = (rect.left - panX) / scale;
+      const canvasY = (rect.bottom + 10 - panY) / scale;
+      openAddNodePopup(rect.left, rect.bottom + 4, canvasX, canvasY);
+    });
+
+    document.getElementById('btn-save').addEventListener('click', saveLayout);
+    document.getElementById('btn-load').addEventListener('click', () => {
+      document.getElementById('file-input').click();
+    });
+    document.getElementById('file-input').addEventListener('change', e => {
+      const f = e.target.files[0];
+      if (!f) return;
+      const reader = new FileReader();
+      reader.onload = ev => loadLayout(ev.target.result);
+      reader.readAsText(f);
+      e.target.value = '';
+    });
+    document.getElementById('btn-auto-layout').addEventListener('click', autoLayout);
+    document.getElementById('btn-reset').addEventListener('click', () => {
+      scale=1; panX=0; panY=0; updateTransform();
+    });
+    document.getElementById('btn-clear').addEventListener('click', () => {
+      if (!confirm('Clear all nodes and edges?')) return;
+      appState.nodes = {};
+      appState.edges = {};
+      _nodeCounter = 0;
+      _edgeCounter = 0;
+      render();
+    });
+
+    document.addEventListener('keydown', e => { if(e.key==='Escape') closeAllPopups(); });
+
+    const wrap = document.getElementById('canvas-wrap');
+    wrap.addEventListener('mousedown', onWrapDown);
+    wrap.addEventListener('mousemove', onWrapMove);
+    wrap.addEventListener('mouseup', onWrapUp);
+    wrap.addEventListener('mouseleave', onWrapUp);
+    wrap.addEventListener('wheel', onZoom, { passive:false });
+    window.addEventListener('mouseup', onWrapUp);
+
+    // Right-click on canvas
+    wrap.addEventListener('contextmenu', e => {
+      if (e.target.closest('.node-card')) return;
+      e.preventDefault();
+      const wrapRect = wrap.getBoundingClientRect();
+      const canvasX = (e.clientX - wrapRect.left - panX) / scale;
+      const canvasY = (e.clientY - wrapRect.top - panY) / scale;
+      showCanvasContextMenu(e.clientX, e.clientY, canvasX, canvasY);
+    });
+
+    // Click outside to close popups
+    document.addEventListener('click', e => {
+      if (!e.target.closest('#ctx-menu') && !e.target.closest('.ctx-item')) {
+        document.getElementById('ctx-menu').classList.remove('visible');
+      }
+    });
+
+    updateTransform();
+    render();
+
+  } catch(err) {
+    document.getElementById('loading').innerHTML =
+      `<div style="color:#ff7b72;font-size:13px">Failed to load data: ${err.message}</div>
+       <div style="color:#6e7681;font-size:11px;margin-top:8px">Serve via local server, not file://</div>`;
+  }
+}
+
+init();
+</script>
+</body>
+</html>
