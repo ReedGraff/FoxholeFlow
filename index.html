@@ -438,9 +438,8 @@
     /* rubber-band handled in SVG */
 
     /* ── SHARE DROPDOWN ────────────────────────────────────────── */
-    .share-wrap { position:relative; }
     #share-menu {
-      position:absolute; top:calc(100% + 4px); left:0; z-index:4000;
+      position:fixed; z-index:4000;
       display:none; background:#161b22; border:1px solid #30363d;
       border-radius:8px; box-shadow:0 8px 32px rgba(0,0,0,.7);
       min-width:200px; padding:4px 0; font-size:11px;
@@ -3348,6 +3347,9 @@ async function init() {
     const shareMenu = document.getElementById('share-menu');
     shareBtn.addEventListener('click', (e) => {
       e.stopPropagation();
+      const rect = shareBtn.getBoundingClientRect();
+      shareMenu.style.top = rect.bottom + 4 + 'px';
+      shareMenu.style.left = rect.left + 'px';
       shareMenu.classList.toggle('visible');
     });
     document.getElementById('share-export').addEventListener('click', () => {
