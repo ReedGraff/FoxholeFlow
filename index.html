@@ -52,10 +52,10 @@
     /* ── CANVAS ───────────────────────────────────────────────── */
     #canvas-wrap {
       position:fixed; top:var(--tb-h); left:0; right:280px; bottom:0;
-      overflow:hidden; cursor:grab;
+      overflow:hidden; cursor:default;
       touch-action:none;
     }
-    #canvas-wrap.grabbing { cursor:grabbing; }
+    #canvas-wrap.panning { cursor:grabbing; }
     #canvas { position:absolute; transform-origin:0 0; }
     #svg-edges { position:absolute; top:0; left:0; overflow:visible; pointer-events:none; }
     #svg-edges .edge-hit { pointer-events:stroke; cursor:pointer; }
@@ -435,7 +435,16 @@
     .info-popover .stat-row .v.amber { color:#f0883e; }
     .info-popover .stat-row .v.red { color:#ff7b72; }
 
-    /* rubber-band handled in SVG */
+    /* ── SELECTION ────────────────────────────────────────────── */
+    .node-card.selected {
+      border-color:#58a6ff !important;
+      box-shadow:0 0 0 2px #58a6ff44, 0 4px 20px rgba(0,0,0,.5);
+    }
+    #selection-rect {
+      position:absolute; border:1.5px dashed #58a6ff;
+      background:rgba(88,166,255,.08); pointer-events:none;
+      z-index:900;
+    }
 
     /* ── SHARE DROPDOWN ────────────────────────────────────────── */
     #share-menu {
@@ -536,6 +545,14 @@
     <div class="leg-row" style="margin-top:4px">
       <span class="leg-line" style="background:#58a6ff"></span> Material flow
     </div>
+    <div class="leg-title" style="margin-top:10px">Controls</div>
+    <div class="leg-row"><kbd style="background:#21262d;border:1px solid #30363d;padding:1px 5px;border-radius:3px;font-size:8px;color:#c9d1d9;font-family:inherit">LMB</kbd> Select / drag-select</div>
+    <div class="leg-row"><kbd style="background:#21262d;border:1px solid #30363d;padding:1px 5px;border-radius:3px;font-size:8px;color:#c9d1d9;font-family:inherit">MMB</kbd> Pan &amp; scroll to zoom</div>
+    <div class="leg-row"><kbd style="background:#21262d;border:1px solid #30363d;padding:1px 5px;border-radius:3px;font-size:8px;color:#c9d1d9;font-family:inherit">RMB</kbd> Context menu</div>
+    <div class="leg-row"><kbd style="background:#21262d;border:1px solid #30363d;padding:1px 5px;border-radius:3px;font-size:8px;color:#c9d1d9;font-family:inherit">Shift</kbd> + click to add to selection</div>
+    <div class="leg-row"><kbd style="background:#21262d;border:1px solid #30363d;padding:1px 5px;border-radius:3px;font-size:8px;color:#c9d1d9;font-family:inherit">Ctrl+C</kbd> / <kbd style="background:#21262d;border:1px solid #30363d;padding:1px 5px;border-radius:3px;font-size:8px;color:#c9d1d9;font-family:inherit">Ctrl+V</kbd> Copy / paste nodes</div>
+    <div class="leg-row"><kbd style="background:#21262d;border:1px solid #30363d;padding:1px 5px;border-radius:3px;font-size:8px;color:#c9d1d9;font-family:inherit">Del</kbd> Delete selected nodes</div>
+    <div class="leg-row"><kbd style="background:#21262d;border:1px solid #30363d;padding:1px 5px;border-radius:3px;font-size:8px;color:#c9d1d9;font-family:inherit">Ctrl+A</kbd> Select all nodes</div>
   </div>
 </div>
 
@@ -1282,9 +1299,11 @@ function buildNodeCard(nodeId, stats) {
   });
   card.appendChild(delBtn);
 
+  if (selectedNodes.has(nodeId)) card.classList.add('selected');
   addDragHandler(card, nodeId);
   card.addEventListener('contextmenu', e => {
     e.preventDefault(); e.stopPropagation();
+    if (!selectedNodes.has(nodeId)) selectNode(nodeId, false);
     showNodeContextMenu(nodeId, e.clientX, e.clientY);
   });
 
@@ -1363,7 +1382,7 @@ function getDownstreamForMaterial(nodeId, materialKey) {
 let _traceActive = false;
 
 function applyMaterialTrace(nodeId, materialKey) {
-  if (dragNode || isPanning || dragPort) return;
+  if (isDraggingSelected || isPanning || dragPort) return;
   _traceActive = true;
   const { nodeSet, edgeSet, matPortSet } = getUpstreamForMaterial(nodeId, materialKey);
 
@@ -1410,7 +1429,7 @@ function applyMaterialTrace(nodeId, materialKey) {
 }
 
 function applyDownstreamTrace(nodeId, materialKey) {
-  if (dragNode || isPanning || dragPort) return;
+  if (isDraggingSelected || isPanning || dragPort) return;
   _traceActive = true;
   const { nodeSet, edgeSet, matPortSet } = getDownstreamForMaterial(nodeId, materialKey);
 
@@ -2259,7 +2278,12 @@ function showNodeContextMenu(nodeId, x, y) {
   }
 
   html += `<div class="ctx-sep"></div>`;
-  html += `<div class="ctx-item danger" data-action="delete"><span class="icon">✕</span>Delete Node</div>`;
+  if (selectedNodes.size > 1 && selectedNodes.has(nodeId)) {
+    html += `<div class="ctx-item" data-action="copy-sel"><span class="icon">⧉</span>Copy Selection (${selectedNodes.size})</div>`;
+    html += `<div class="ctx-item danger" data-action="delete-sel"><span class="icon">✕</span>Delete Selection (${selectedNodes.size})</div>`;
+  } else {
+    html += `<div class="ctx-item danger" data-action="delete"><span class="icon">✕</span>Delete Node</div>`;
+  }
 
   menu.innerHTML = html;
   menu.style.left = x + 'px';
@@ -2273,6 +2297,13 @@ function showNodeContextMenu(nodeId, x, y) {
       const pos = appState.nodes[nodeId]?.pos || {x:400,y:300};
       if (action === 'delete') {
         removeNode(nodeId);
+      } else if (action === 'copy-sel') {
+        copySelectedNodes();
+        closeAllPopups();
+        return;
+      } else if (action === 'delete-sel') {
+        deleteSelected();
+        return;
       } else if (action === 'duplicate') {
         const nid = addProductionNode(getRecipeForNode(nodeId), pos.x + 40, pos.y + 40);
         appState.nodes[nid].queues = node.queues;
@@ -2347,12 +2378,20 @@ function showEdgeContextMenu(edgeId, x, y) {
 function showCanvasContextMenu(x, y, canvasX, canvasY) {
   closeAllPopups();
   const menu = document.getElementById('ctx-menu');
-  menu.innerHTML = `
-    <div class="ctx-label">CANVAS</div>
+  const hasSel = selectedNodes.size > 0;
+  let html = `<div class="ctx-label">CANVAS</div>
     <div class="ctx-item" data-action="add-node"><span class="icon">+</span>Add Node Here</div>
+    <div class="ctx-item" data-action="paste"><span class="icon">📋</span>Paste Nodes <span style="margin-left:auto;font-size:9px;color:#6e7681">Ctrl+V</span></div>`;
+  if (hasSel) {
+    html += `<div class="ctx-sep"></div>
+    <div class="ctx-item" data-action="copy-sel"><span class="icon">⧉</span>Copy Selection (${selectedNodes.size}) <span style="margin-left:auto;font-size:9px;color:#6e7681">Ctrl+C</span></div>
+    <div class="ctx-item danger" data-action="delete-sel"><span class="icon">✕</span>Delete Selection (${selectedNodes.size}) <span style="margin-left:auto;font-size:9px;color:#6e7681">Del</span></div>`;
+  }
+  html += `<div class="ctx-sep"></div>
+    <div class="ctx-item" data-action="select-all"><span class="icon">▣</span>Select All <span style="margin-left:auto;font-size:9px;color:#6e7681">Ctrl+A</span></div>
     <div class="ctx-item" data-action="auto-layout"><span class="icon">⊞</span>Auto Layout</div>
-    <div class="ctx-item" data-action="center"><span class="icon">◎</span>Center View</div>
-  `;
+    <div class="ctx-item" data-action="center"><span class="icon">◎</span>Center View</div>`;
+  menu.innerHTML = html;
   menu.style.left = x + 'px';
   menu.style.top = y + 'px';
   menu.classList.add('visible');
@@ -2361,6 +2400,14 @@ function showCanvasContextMenu(x, y, canvasX, canvasY) {
     item.addEventListener('click', () => {
       if (item.dataset.action === 'add-node') {
         openAddNodePopup(x, y, canvasX, canvasY);
+      } else if (item.dataset.action === 'paste') {
+        pasteNodes();
+      } else if (item.dataset.action === 'copy-sel') {
+        copySelectedNodes();
+      } else if (item.dataset.action === 'delete-sel') {
+        deleteSelected();
+      } else if (item.dataset.action === 'select-all') {
+        selectAll();
       } else if (item.dataset.action === 'auto-layout') {
         autoLayout();
       } else if (item.dataset.action === 'center') {
@@ -2906,7 +2953,47 @@ function autoLayout() {
 // ═══════════════════════════════════════════════════════════════
 let scale=1, panX=0, panY=0;
 let isPanning=false, panStartX=0, panStartY=0;
-let dragNode=null, dragOffX=0, dragOffY=0;
+
+// ── Selection state ──────────────────────────────────────────
+const selectedNodes = new Set();
+let isSelecting = false;
+let selStartScreenX = 0, selStartScreenY = 0;
+let selectionRectEl = null;
+let isDraggingSelected = false;
+let dragSelectedStartX = 0, dragSelectedStartY = 0;
+let dragSelectedOrigins = {};
+
+function clearSelection() {
+  selectedNodes.clear();
+  document.querySelectorAll('.node-card.selected').forEach(el => el.classList.remove('selected'));
+}
+function selectNode(nodeId, additive) {
+  if (!additive) clearSelection();
+  selectedNodes.add(nodeId);
+  const card = document.getElementById(`card-${nodeId}`);
+  if (card) card.classList.add('selected');
+}
+function deselectNode(nodeId) {
+  selectedNodes.delete(nodeId);
+  const card = document.getElementById(`card-${nodeId}`);
+  if (card) card.classList.remove('selected');
+}
+function toggleNodeSelection(nodeId) {
+  if (selectedNodes.has(nodeId)) deselectNode(nodeId);
+  else { selectedNodes.add(nodeId); document.getElementById(`card-${nodeId}`)?.classList.add('selected'); }
+}
+function selectAll() {
+  for (const nid of Object.keys(appState.nodes)) {
+    selectedNodes.add(nid);
+    document.getElementById(`card-${nid}`)?.classList.add('selected');
+  }
+}
+function deleteSelected() {
+  if (!selectedNodes.size) return;
+  for (const nid of selectedNodes) removeNode(nid);
+  selectedNodes.clear();
+  render();
+}
 
 function updateTransform() {
   document.getElementById('canvas').style.transform = `translate(${panX}px,${panY}px) scale(${scale})`;
@@ -2928,21 +3015,88 @@ function centerView() {
   updateTransform();
 }
 
+// ── Screen → canvas coordinate conversion ────────────────────
+function screenToCanvas(sx, sy) {
+  const wrap = document.getElementById('canvas-wrap');
+  const rect = wrap.getBoundingClientRect();
+  return {
+    x: (sx - rect.left - panX) / scale,
+    y: (sy - rect.top - panY) / scale,
+  };
+}
+
 function onWrapDown(e) {
-  if (e.button === 2) return; // context menu
+  // Right-click: handled by contextmenu event
+  if (e.button === 2) return;
+
+  // Port drag
   if (e.target.closest('.port-dot')) {
     onPortDragStart(e);
     return;
   }
-  if (e.target.closest('.node-card') || e.target.closest('#ctx-menu') ||
-      e.target.closest('#add-node-popup') || e.target.closest('#edge-popup') ||
-      e.target.closest('#summary-panel')) return;
-  closeAllPopups();
-  isPanning = true;
-  panStartX = e.clientX - panX;
-  panStartY = e.clientY - panY;
-  document.getElementById('canvas-wrap').classList.add('grabbing');
+
+  // Ignore popups / sidebar
+  if (e.target.closest('#ctx-menu') || e.target.closest('#add-node-popup') ||
+      e.target.closest('#edge-popup') || e.target.closest('#summary-panel')) return;
+
+  // Middle mouse button → pan
+  if (e.button === 1) {
+    e.preventDefault();
+    isPanning = true;
+    panStartX = e.clientX - panX;
+    panStartY = e.clientY - panY;
+    document.getElementById('canvas-wrap').classList.add('panning');
+    return;
+  }
+
+  // Left-click on a node card
+  const clickedCard = e.target.closest('.node-card');
+  if (clickedCard && e.button === 0) {
+    if (e.target.tagName==='SELECT'||e.target.tagName==='INPUT'||e.target.tagName==='BUTTON') return;
+    e.stopPropagation();
+    const nid = clickedCard.dataset.nodeId;
+
+    if (e.shiftKey) {
+      toggleNodeSelection(nid);
+      return;
+    }
+
+    if (!selectedNodes.has(nid)) {
+      clearSelection();
+      selectNode(nid, false);
+    }
+
+    // Begin dragging selected nodes
+    isDraggingSelected = true;
+    dragSelectedStartX = e.clientX;
+    dragSelectedStartY = e.clientY;
+    dragSelectedOrigins = {};
+    for (const sid of selectedNodes) {
+      const n = appState.nodes[sid];
+      if (n) dragSelectedOrigins[sid] = { x: n.pos.x, y: n.pos.y };
+    }
+    return;
+  }
+
+  // Left-click on empty canvas → start selection rectangle
+  if (e.button === 0) {
+    closeAllPopups();
+    if (!e.shiftKey) clearSelection();
+    isSelecting = true;
+    selStartScreenX = e.clientX;
+    selStartScreenY = e.clientY;
+    // Create selection rect element in canvas-wrap
+    const wrap = document.getElementById('canvas-wrap');
+    selectionRectEl = document.createElement('div');
+    selectionRectEl.id = 'selection-rect';
+    selectionRectEl.style.left = (e.clientX - wrap.getBoundingClientRect().left) + 'px';
+    selectionRectEl.style.top  = (e.clientY - wrap.getBoundingClientRect().top) + 'px';
+    selectionRectEl.style.width = '0';
+    selectionRectEl.style.height = '0';
+    wrap.appendChild(selectionRectEl);
+  }
 }
+
 function onWrapMove(e) {
   if (dragPort) {
     onPortDragMove(e);
@@ -2952,22 +3106,76 @@ function onWrapMove(e) {
     panX = e.clientX - panStartX;
     panY = e.clientY - panStartY;
     updateTransform();
+    return;
   }
-  if (dragNode) {
-    const x = (e.clientX - panX) / scale - dragOffX;
-    const y = (e.clientY - 48 - panY) / scale - dragOffY;
-    dragNode.style.left = x+'px';
-    dragNode.style.top  = y+'px';
-    const nid = dragNode.dataset.nodeId;
-    if (appState.nodes[nid]) appState.nodes[nid].pos = { x: Math.round(x), y: Math.round(y) };
+  if (isDraggingSelected && selectedNodes.size) {
+    const dx = (e.clientX - dragSelectedStartX) / scale;
+    const dy = (e.clientY - dragSelectedStartY) / scale;
+    for (const sid of selectedNodes) {
+      const orig = dragSelectedOrigins[sid];
+      if (!orig) continue;
+      const nx = Math.round(orig.x + dx);
+      const ny = Math.round(orig.y + dy);
+      appState.nodes[sid].pos = { x: nx, y: ny };
+      const card = document.getElementById(`card-${sid}`);
+      if (card) { card.style.left = nx + 'px'; card.style.top = ny + 'px'; }
+    }
     requestAnimationFrame(() => renderEdges(computeNodeStats()));
+    return;
+  }
+  if (isSelecting && selectionRectEl) {
+    const wrap = document.getElementById('canvas-wrap');
+    const wr = wrap.getBoundingClientRect();
+    const x1 = selStartScreenX - wr.left, y1 = selStartScreenY - wr.top;
+    const x2 = e.clientX - wr.left, y2 = e.clientY - wr.top;
+    selectionRectEl.style.left   = Math.min(x1, x2) + 'px';
+    selectionRectEl.style.top    = Math.min(y1, y2) + 'px';
+    selectionRectEl.style.width  = Math.abs(x2 - x1) + 'px';
+    selectionRectEl.style.height = Math.abs(y2 - y1) + 'px';
   }
 }
+
 function onWrapUp(e) {
   if (dragPort) { onPortDragEnd(e); return; }
-  isPanning = false; dragNode = null;
-  document.getElementById('canvas-wrap').classList.remove('grabbing');
+
+  if (isPanning) {
+    isPanning = false;
+    document.getElementById('canvas-wrap').classList.remove('panning');
+    return;
+  }
+
+  if (isDraggingSelected) {
+    isDraggingSelected = false;
+    dragSelectedOrigins = {};
+    return;
+  }
+
+  if (isSelecting && selectionRectEl) {
+    // Compute canvas-space selection rectangle
+    const wrap = document.getElementById('canvas-wrap');
+    const wr = wrap.getBoundingClientRect();
+    const sx1 = selStartScreenX, sy1 = selStartScreenY;
+    const sx2 = e.clientX, sy2 = e.clientY;
+    const c1 = screenToCanvas(Math.min(sx1,sx2), Math.min(sy1,sy2));
+    const c2 = screenToCanvas(Math.max(sx1,sx2), Math.max(sy1,sy2));
+
+    const selW = Math.abs(sx2 - sx1), selH = Math.abs(sy2 - sy1);
+    if (selW > 4 || selH > 4) {
+      for (const [nid, node] of Object.entries(appState.nodes)) {
+        const nx = node.pos.x, ny = node.pos.y;
+        const nw = 320, nh = 100;
+        if (nx + nw > c1.x && nx < c2.x && ny + nh > c1.y && ny < c2.y) {
+          selectNode(nid, true);
+        }
+      }
+    }
+
+    selectionRectEl.remove();
+    selectionRectEl = null;
+    isSelecting = false;
+  }
 }
+
 function onZoom(e) {
   e.preventDefault();
   const f = e.deltaY > 0 ? 0.9 : 1.1;
@@ -2981,7 +3189,7 @@ function onZoom(e) {
   updateTransform();
 }
 
-// ── Touch handlers (mobile pan + pinch-zoom) ────────────────
+// ── Touch handlers (mobile: 1-finger pan, pinch-zoom) ────────
 let touchState = { active: false, mode: null, startX: 0, startY: 0, startPanX: 0, startPanY: 0, startDist: 0, startScale: 1, midX: 0, midY: 0 };
 
 function getTouchDist(t1, t2) {
@@ -3025,9 +3233,7 @@ function onTouchMove(e) {
     updateTransform();
   }
 
-  if (e.touches.length === 1 && touchState.mode === 'pan') {
-    // Upgrade to pinch if second finger arrives
-  } else if (e.touches.length >= 2 && touchState.mode === 'pan') {
+  if (e.touches.length >= 2 && touchState.mode === 'pan') {
     const wrap = document.getElementById('canvas-wrap');
     const rect = wrap.getBoundingClientRect();
     const mx = (e.touches[0].clientX + e.touches[1].clientX) / 2 - rect.left;
@@ -3046,15 +3252,96 @@ function onTouchEnd(e) {
 }
 
 function addDragHandler(card, nodeId) {
-  card.addEventListener('mousedown', e => {
-    if (e.target.tagName==='SELECT'||e.target.tagName==='INPUT'||
-        e.target.tagName==='BUTTON'||e.target.closest('.port-dot')) return;
-    if (e.button!==0) return;
-    e.stopPropagation();
-    dragNode = card;
-    const rect = card.getBoundingClientRect();
-    dragOffX = (e.clientX - rect.left) / scale;
-    dragOffY = (e.clientY - rect.top)  / scale;
+  // Node dragging is handled centrally in onWrapDown/onWrapMove for multi-select support.
+  // This still catches mousedown on the card to prevent it from starting a selection rect.
+}
+
+// ═══════════════════════════════════════════════════════════════
+// COPY / PASTE NODES
+// ═══════════════════════════════════════════════════════════════
+function copySelectedNodes() {
+  if (!selectedNodes.size) { showToast('Nothing selected to copy'); return; }
+
+  const nodeIds = [...selectedNodes];
+  const nodeSet = new Set(nodeIds);
+
+  const copiedNodes = {};
+  for (const nid of nodeIds) {
+    const n = appState.nodes[nid];
+    if (n) copiedNodes[nid] = JSON.parse(JSON.stringify(n));
+  }
+
+  // Copy edges that connect two selected nodes
+  const copiedEdges = {};
+  for (const [eid, e] of Object.entries(appState.edges)) {
+    if (nodeSet.has(e.fromNode) && nodeSet.has(e.toNode)) {
+      copiedEdges[eid] = JSON.parse(JSON.stringify(e));
+    }
+  }
+
+  const payload = { foxholeflow: true, nodes: copiedNodes, edges: copiedEdges };
+  navigator.clipboard.writeText(JSON.stringify(payload)).then(() => {
+    showToast(`Copied ${nodeIds.length} node(s)`);
+  }).catch(() => {
+    showToast('Failed to copy to clipboard');
+  });
+}
+
+function pasteNodes() {
+  navigator.clipboard.readText().then(text => {
+    let data;
+    try { data = JSON.parse(text); } catch { showToast('Clipboard does not contain valid JSON'); return; }
+    if (!data.foxholeflow || !data.nodes) { showToast('Clipboard does not contain FoxholeFlow data'); return; }
+
+    const oldToNew = {};
+    const oldNodes = data.nodes;
+    const oldEdges = data.edges || {};
+
+    // Compute centroid of pasted nodes for offset
+    const posArr = Object.values(oldNodes).map(n => n.pos || {x:0,y:0});
+    const cx = posArr.reduce((s,p)=>s+p.x, 0) / (posArr.length||1);
+    const cy = posArr.reduce((s,p)=>s+p.y, 0) / (posArr.length||1);
+
+    // Place paste centered on viewport
+    const wrap = document.getElementById('canvas-wrap');
+    const wr = wrap.getBoundingClientRect();
+    const viewCenterCanvas = screenToCanvas(wr.left + wr.width/2, wr.top + wr.height/2);
+    const offX = viewCenterCanvas.x - cx;
+    const offY = viewCenterCanvas.y - cy;
+
+    clearSelection();
+
+    for (const [oldId, n] of Object.entries(oldNodes)) {
+      const newId = newNodeId();
+      oldToNew[oldId] = newId;
+      const newNode = JSON.parse(JSON.stringify(n));
+      newNode.id = newId;
+      newNode.pos = { x: Math.round((n.pos?.x || 0) + offX + 30), y: Math.round((n.pos?.y || 0) + offY + 30) };
+      appState.nodes[newId] = newNode;
+      selectedNodes.add(newId);
+    }
+
+    for (const [oldEid, e] of Object.entries(oldEdges)) {
+      const newFrom = oldToNew[e.fromNode];
+      const newTo = oldToNew[e.toNode];
+      if (newFrom && newTo) {
+        const newEid = newEdgeId();
+        const newEdge = JSON.parse(JSON.stringify(e));
+        newEdge.id = newEid;
+        newEdge.fromNode = newFrom;
+        newEdge.toNode = newTo;
+        appState.edges[newEid] = newEdge;
+      }
+    }
+
+    render();
+    // Re-apply selection highlight after render
+    for (const nid of selectedNodes) {
+      document.getElementById(`card-${nid}`)?.classList.add('selected');
+    }
+    showToast(`Pasted ${Object.keys(oldNodes).length} node(s)`);
+  }).catch(() => {
+    showToast('Failed to read clipboard');
   });
 }
 
@@ -3416,8 +3703,12 @@ async function init() {
     document.getElementById('sum-collapse').addEventListener('click', collapseSummary);
     summaryTab.addEventListener('click', expandSummary);
 
-    // Start collapsed
-    collapseSummary();
+    // Start expanded on desktop, collapsed on mobile
+    if (window.matchMedia('(max-width: 768px)').matches) {
+      collapseSummary();
+    } else {
+      expandSummary();
+    }
 
     // Keep --tb-h in sync with actual toolbar height (handles wrapping)
     const toolbar = document.getElementById('toolbar');
@@ -3429,7 +3720,14 @@ async function init() {
     });
     tbObserver.observe(toolbar);
 
-    document.addEventListener('keydown', e => { if(e.key==='Escape') closeAllPopups(); });
+    document.addEventListener('keydown', e => {
+      if (e.key === 'Escape') { closeAllPopups(); clearSelection(); }
+      if (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT' || e.target.tagName === 'TEXTAREA') return;
+      if ((e.ctrlKey || e.metaKey) && e.key === 'c') { e.preventDefault(); copySelectedNodes(); }
+      if ((e.ctrlKey || e.metaKey) && e.key === 'v') { e.preventDefault(); pasteNodes(); }
+      if ((e.ctrlKey || e.metaKey) && e.key === 'a') { e.preventDefault(); selectAll(); }
+      if (e.key === 'Delete' || e.key === 'Backspace') { if (selectedNodes.size) { e.preventDefault(); deleteSelected(); } }
+    });
 
     const wrap = canvasWrap;
     wrap.addEventListener('mousedown', onWrapDown);
@@ -3437,6 +3735,7 @@ async function init() {
     wrap.addEventListener('mouseup', onWrapUp);
     wrap.addEventListener('mouseleave', onWrapUp);
     wrap.addEventListener('wheel', onZoom, { passive:false });
+    wrap.addEventListener('auxclick', e => { if (e.button === 1) e.preventDefault(); });
     window.addEventListener('mouseup', onWrapUp);
 
     // Touch handlers for mobile pan + pinch-zoom
