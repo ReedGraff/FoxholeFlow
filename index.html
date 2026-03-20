@@ -1214,7 +1214,12 @@ function computeNodeStats() {
         }
 
         s.cyclesPerSec = cyclesPerSec;
-        s.power = (recipe.power || 0) * s.facilities;
+        const util = (cyclesPerSec > 0 && s.facilities > 0 && recipe.cycleTime > 0)
+          ? Math.min(1, (cyclesPerSec * recipe.cycleTime) / (s.facilities * queues))
+          : 0;
+        s.utilization = util;
+        s.peakPower = (recipe.power || 0) * s.facilities;
+        s.avgPower  = (recipe.power || 0) * s.facilities * util;
       }
     } else if (node.type === 'output') {
       s.demanded[node.materialKey] = node.desiredAmount / node.intervalSec;
@@ -1660,7 +1665,9 @@ function buildProductionCard(card, nodeId, node, stats) {
   const cyclesPerFacility = displayFac > 0 ? cyclesPerDay / displayFac : 0;
   const activeSecPerFac = displayFac > 0 ? (cyclesPerFacility / queues) * cycleTimeSec : 0;
   const utilizationPct = displayFac > 0 ? Math.min(100, (activeSecPerFac / 86400) * 100) : 0;
-  const pw = (recipe.power || 0) * displayFac;
+  const recipePw = recipe.power || 0;
+  const peakPw = recipePw * displayFac;
+  const avgPw = peakPw * (utilizationPct / 100);
 
   const popover = document.createElement('div');
   popover.className = 'info-popover';
@@ -1673,10 +1680,15 @@ function buildProductionCard(card, nodeId, node, stats) {
     popHtml += `
     <div class="stat-row"><span>Runs/day</span><span class="v">${fmt(cyclesPerDay)}</span></div>
     <div class="stat-row"><span>Per facility</span><span class="v">${fmt(cyclesPerFacility)}/day</span></div>
-    <div class="stat-row"><span>Active/fac</span><span class="v ${utilizationPct>95?'red':utilizationPct>75?'amber':'green'}">${formatTime(Math.round(activeSecPerFac))} (${Math.round(utilizationPct)}%)</span></div>`;
+    <div class="stat-row"><span>Utilization</span><span class="v ${utilizationPct>95?'red':utilizationPct>75?'amber':'green'}">${Math.round(utilizationPct)}%</span></div>`;
   }
-  if (pw !== 0) {
-    popHtml += `<div class="stat-row"><span>Power</span><span class="v ${pw<0?'red':'green'}">${pw} MW</span></div>`;
+  if (recipePw !== 0) {
+    const pwLabel = recipePw < 0 ? 'Consumes' : 'Produces';
+    const pwSign = recipePw > 0 ? '+' : '';
+    popHtml += `
+    <div class="stat-row"><span>${pwLabel} (avg)</span><span class="v ${avgPw<0?'red':'green'}">${pwSign}${avgPw.toFixed(1)} MW</span></div>
+    <div class="stat-row"><span>${pwLabel} (peak)</span><span class="v ${peakPw<0?'red':'green'}">${pwSign}${peakPw} MW</span></div>
+    <div class="stat-row"><span>Per facility</span><span class="v">${recipePw} MW</span></div>`;
   }
   popover.innerHTML = popHtml;
   pc.appendChild(popover);
@@ -1813,12 +1825,17 @@ function buildProductionCard(card, nodeId, node, stats) {
     }
   }
 
-  // Compact footer: power only (if nonzero)
-  const pw2 = (recipe.power || 0) * (s.facilities || (isCapacity ? (node.fixedFacilities||1) : 0));
-  if (pw2 !== 0) {
+  // Compact footer: avg/peak power (if nonzero)
+  const footerAvgPw = s.avgPower || 0;
+  const footerPeakPw = s.peakPower || 0;
+  if (footerPeakPw !== 0) {
     const fStats = document.createElement('div');
     fStats.className = 'node-stats';
-    fStats.innerHTML = `<div class="stat-row"><span>Power</span><span class="v ${pw2<0?'red':'green'}">${pw2} MW</span></div>`;
+    const sign = footerPeakPw > 0 ? '+' : '';
+    const avgSign = footerAvgPw > 0 ? '+' : '';
+    const utilPct = s.utilization != null ? Math.round(s.utilization * 100) : 0;
+    fStats.innerHTML = `<div class="stat-row"><span>Power (avg)</span><span class="v ${footerAvgPw<0?'red':'green'}">${avgSign}${footerAvgPw.toFixed(1)} MW</span></div>`
+      + `<div class="stat-row"><span>Power (peak)</span><span class="v ${footerPeakPw<0?'red':'green'}">${sign}${footerPeakPw} MW</span></div>`;
     card.appendChild(fStats);
   }
 }
@@ -2167,14 +2184,61 @@ function renderSummary(stats) {
     }
   }
 
-  // Power
-  let totalPower = 0;
+  // Power breakdown
+  let avgConsumption = 0, peakConsumption = 0;
+  let avgProduction = 0, peakProduction = 0;
   for (const nid of prodNodes) {
-    totalPower += (stats[nid]?.power || 0);
+    const st = stats[nid];
+    if (!st) continue;
+    const avg = st.avgPower || 0;
+    const peak = st.peakPower || 0;
+    if (peak < 0) {
+      avgConsumption += avg;
+      peakConsumption += peak;
+    } else if (peak > 0) {
+      avgProduction += avg;
+      peakProduction += peak;
+    }
   }
-  if (totalPower !== 0) {
+  if (peakConsumption !== 0 || peakProduction !== 0) {
+    const netAvg = avgProduction + avgConsumption;
+    const netPeak = peakProduction + peakConsumption;
     html += `<div class="sum-sec">Power</div>`;
-    html += sumRow('Total', `${totalPower} MW`, totalPower < 0 ? 'red' : 'green');
+    if (peakConsumption !== 0) {
+      html += sumRow('Avg consumption', `${avgConsumption.toFixed(1)} MW`, 'red');
+      html += sumRow('Peak consumption', `${peakConsumption} MW`, 'red');
+    }
+    if (peakProduction !== 0) {
+      html += sumRow('Avg production', `+${avgProduction.toFixed(1)} MW`, 'green');
+      html += sumRow('Peak production', `+${peakProduction} MW`, 'green');
+    }
+    const netCls = netAvg >= 0 ? 'green' : 'red';
+    const netSign = netAvg >= 0 ? '+' : '';
+    html += sumRow('Net average', `${netSign}${netAvg.toFixed(1)} MW`, netCls);
+    if (netAvg < 0) {
+      html += sumRow('', `<span style="font-size:8px;color:#ff7b72">⚠ Avg consumption exceeds avg production</span>`);
+    } else if (peakConsumption !== 0 && peakProduction !== 0 && netPeak < 0) {
+      html += sumRow('', `<span style="font-size:8px;color:#f0883e">⚠ Peak consumption can exceed peak production</span>`);
+    }
+
+    // Per-node power breakdown
+    const pwNodes = prodNodes.filter(nid => (stats[nid]?.peakPower || 0) !== 0);
+    if (pwNodes.length > 1) {
+      html += `<div class="sum-sec">Power per Node</div>`;
+      for (const nid of pwNodes) {
+        const st = stats[nid];
+        const n = appState.nodes[nid];
+        const r = getRecipeForNode(nid);
+        if (!r) continue;
+        const loc = r.upgradeName ? `${r.buildingName} (${r.upgradeName})` : r.buildingName;
+        const utilPct = Math.round((st.utilization || 0) * 100);
+        const avg = (st.avgPower || 0);
+        const pk = (st.peakPower || 0);
+        const cls = avg < 0 ? 'red' : 'green';
+        const sign = avg >= 0 ? '+' : '';
+        html += sumRow(`${loc} ×${st.facilities||0}`, `<span class="${cls}">${sign}${avg.toFixed(1)}</span> <span style="color:#6e7681">(${utilPct}%)</span>`);
+      }
+    }
   }
 
   // Input sources
