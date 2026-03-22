@@ -335,6 +335,19 @@
     }
     #summary-tab:hover { color:#f0f6fc; background:#21262d; }
     #summary-tab.visible { display:block; }
+    .sum-tabs {
+      display:flex; border-bottom:1px solid #30363d; flex-shrink:0; background:#0d1117;
+    }
+    .sum-tab {
+      flex:1; text-align:center; padding:6px 0; font-size:9px; font-weight:600;
+      color:#6e7681; cursor:pointer; border-bottom:2px solid transparent;
+      transition:color .15s, border-color .15s; text-transform:uppercase; letter-spacing:.4px;
+      background:none; border-top:none; border-left:none; border-right:none; font-family:inherit;
+    }
+    .sum-tab:hover { color:#c9d1d9; }
+    .sum-tab.active { color:#58a6ff; border-bottom-color:#58a6ff; }
+    .sum-tab-pane { display:none; }
+    .sum-tab-pane.active { display:block; }
     .sum-body { flex:1; overflow-y:auto; padding:10px 12px; }
     .sum-body::-webkit-scrollbar { width:4px; }
     .sum-body::-webkit-scrollbar-thumb { background:#30363d; border-radius:2px; }
@@ -384,6 +397,17 @@
     #svg-edges .edge-path.dimmed { opacity:0.06 !important; }
     #svg-edges .edge-path.highlighted { opacity:1 !important; stroke-width:2.5; }
     #svg-edges .edge-label.dimmed { opacity:0.06 !important; }
+
+    /* ── GROUP RECTANGLES ─────────────────────────────────── */
+    .group-rect {
+      position:absolute; border:1.5px dashed; border-radius:12px;
+      pointer-events:none;
+    }
+    .group-rect-label {
+      position:absolute; top:-18px; left:8px;
+      font-size:9px; font-weight:700; letter-spacing:.5px;
+      text-transform:uppercase; white-space:nowrap;
+    }
 
     /* ── PRODUCTION CONTROLS ────────────────────────────────── */
     .prod-controls {
@@ -535,6 +559,12 @@
     <span>Production Summary</span>
     <button class="sum-toggle" id="sum-collapse" title="Collapse panel">✕</button>
   </div>
+  <div class="sum-tabs" id="sum-tabs">
+    <button class="sum-tab active" data-tab="overview">Overview</button>
+    <button class="sum-tab" data-tab="power">Power</button>
+    <button class="sum-tab" data-tab="transport">Transport</button>
+    <button class="sum-tab" data-tab="io">I/O</button>
+  </div>
   <div class="sum-body" id="sum-body"><div class="sum-empty">Add nodes to begin planning.</div></div>
   <div class="sum-legend">
     <div class="leg-title">Legend</div>
@@ -609,6 +639,32 @@
   <div class="ep-row" id="ep-auto-display" style="display:none">
     <span class="label">Computed flow</span>
     <span id="ep-auto-value" style="font-size:10px;color:#7ee787;font-weight:600">—</span>
+  </div>
+  <div style="border-top:1px solid #21262d;margin:6px 0"></div>
+  <div class="ep-row">
+    <span class="label">Transport</span>
+    <select class="ep-input" id="ep-transport" style="width:100%">
+      <option value="">None (pipe / internal)</option>
+    </select>
+  </div>
+  <div id="ep-transport-cars" style="display:none">
+    <div class="ep-row">
+      <span class="label">Cars</span>
+      <input class="ep-input" id="ep-cars" type="number" min="1" style="width:54px">
+    </div>
+  </div>
+  <div id="ep-transport-info" style="display:none">
+    <div class="ep-row">
+      <span class="label">Capacity/trip</span>
+      <span id="ep-cap-value" style="font-size:10px;color:#c9d1d9;font-weight:600">—</span>
+    </div>
+    <div class="ep-row">
+      <span class="label">Trips/day</span>
+      <span id="ep-trips-value" style="font-size:10px;color:#79c0ff;font-weight:600">—</span>
+    </div>
+    <div class="ep-row" id="ep-transport-warn" style="display:none">
+      <span style="font-size:8px;color:#f0883e">⚠ Material not valid for this transport</span>
+    </div>
   </div>
   <div class="ep-btns">
     <button class="ep-btn" id="ep-ok">OK</button>
@@ -719,20 +775,101 @@ let _nodeCounter = 0;
 function newNodeId() { return `n${++_nodeCounter}`; }
 let _edgeCounter = 0;
 function newEdgeId() { return `e${++_edgeCounter}`; }
+let _groupCounter = 0;
+function newGroupId() { return `g${++_groupCounter}`; }
 
-/*
-  Node types:
-    - 'production': A facility producing materials. Has recipe, queues, inputs, outputs.
-    - 'output':     A demand/sink node. Material + desired rate + interval.
-    - 'input':      A source node (collected resource). Material + supply rate + interval.
-  
-  Edge: { id, fromNode, fromMaterial, toNode, toMaterial, flowPerInterval, intervalSec (null=inherit) }
-*/
+const GROUP_COLORS = ['#58a6ff','#3fb950','#f0883e','#bc8cff','#f778ba','#79c0ff','#56d364','#e3b341'];
 
 const appState = {
   nodes: {},
   edges: {},
+  groups: {},
 };
+
+// Transport profiles loaded from foxholeflow_transport.json
+let transportProfiles = {};
+let transportCategories = {};
+
+function parseTransportData(data) {
+  transportProfiles = data.profiles || {};
+  transportCategories = data.categories || {};
+}
+
+function getTransportCapacity(profileId, materialKey, cars) {
+  const p = transportProfiles[profileId];
+  if (!p) return 0;
+  let cap;
+  if (p.multiCar) {
+    const numCars = cars || p.defaultCars;
+    const perCar = p.itemLimits?.[materialKey] ?? p.perCarCapacity;
+    cap = perCar * numCars;
+  } else {
+    cap = p.itemLimits?.[materialKey] ?? p.capacity;
+  }
+  return cap;
+}
+
+function calcTripsPerDay(flowPerDay, profileId, cars, materialKey) {
+  const cap = getTransportCapacity(profileId, materialKey, cars);
+  if (cap <= 0) return Infinity;
+  return flowPerDay / cap;
+}
+
+function isValidTransportItem(profileId, materialKey) {
+  const p = transportProfiles[profileId];
+  if (!p) return false;
+  if (p.validItems === 'all_solid') return true;
+  return Array.isArray(p.validItems) && p.validItems.includes(materialKey);
+}
+
+// ═══════════════════════════════════════════════════════════════
+// GROUP MANAGEMENT
+// ═══════════════════════════════════════════════════════════════
+function addGroup(name) {
+  const id = newGroupId();
+  const colorIdx = Object.keys(appState.groups).length % GROUP_COLORS.length;
+  appState.groups[id] = { id, name: name || `Group ${id.slice(1)}`, color: GROUP_COLORS[colorIdx] };
+  return id;
+}
+
+function removeGroup(groupId) {
+  for (const n of Object.values(appState.nodes)) {
+    if (n.group === groupId) delete n.group;
+  }
+  delete appState.groups[groupId];
+}
+
+function renameGroup(groupId, name) {
+  if (appState.groups[groupId]) appState.groups[groupId].name = name;
+}
+
+function setGroupColor(groupId, color) {
+  if (appState.groups[groupId]) appState.groups[groupId].color = color;
+}
+
+function setNodeGroup(nodeId, groupId) {
+  const n = appState.nodes[nodeId];
+  if (n) n.group = groupId || undefined;
+}
+
+function removeNodeFromGroup(nodeId) {
+  const n = appState.nodes[nodeId];
+  if (n) delete n.group;
+}
+
+function getGroupNodes(groupId) {
+  return Object.values(appState.nodes).filter(n => n.group === groupId);
+}
+
+function isInterGroupEdge(edge) {
+  const fromNode = appState.nodes[edge.fromNode];
+  const toNode = appState.nodes[edge.toNode];
+  if (!fromNode || !toNode) return false;
+  const fg = fromNode.group || null;
+  const tg = toNode.group || null;
+  if (!fg && !tg) return false;
+  return fg !== tg;
+}
 
 function getRecipeForNode(nodeId) {
   const n = appState.nodes[nodeId];
@@ -797,6 +934,8 @@ function addEdge(fromNode, fromMaterial, toNode, toMaterial, flow, mode) {
     flowPerInterval: flow || 0,
     intervalSec: defaultInterval,
     mode: mode || 'auto',
+    transportId: null,
+    transportCars: null,
   };
   return id;
 }
@@ -1265,9 +1404,77 @@ function render() {
 function renderAllNodes(stats) {
   const canvas = document.getElementById('canvas');
   canvas.querySelectorAll('.node-card').forEach(el => el.remove());
+  canvas.querySelectorAll('.group-rect').forEach(el => el.remove());
+
   for (const nodeId of Object.keys(appState.nodes)) {
     const el = buildNodeCard(nodeId, stats);
     canvas.appendChild(el);
+  }
+
+  renderGroupRects(canvas);
+}
+
+function renderGroupRects(canvas) {
+  canvas.querySelectorAll('.group-rect').forEach(el => el.remove());
+
+  for (const group of Object.values(appState.groups)) {
+    const members = getGroupNodes(group.id);
+    if (!members.length) continue;
+
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    for (const n of members) {
+      const card = document.getElementById(`card-${n.id}`);
+      const cardW = card ? card.offsetWidth : 320;
+      const cardH = card ? card.offsetHeight : 160;
+      minX = Math.min(minX, n.pos.x);
+      minY = Math.min(minY, n.pos.y);
+      maxX = Math.max(maxX, n.pos.x + cardW);
+      maxY = Math.max(maxY, n.pos.y + cardH);
+    }
+    const pad = 30;
+    const rect = document.createElement('div');
+    rect.className = 'group-rect';
+    rect.dataset.groupId = group.id;
+    rect.style.left = (minX - pad) + 'px';
+    rect.style.top = (minY - pad) + 'px';
+    rect.style.width = (maxX - minX + pad * 2) + 'px';
+    rect.style.height = (maxY - minY + pad * 2) + 'px';
+    rect.style.borderColor = group.color;
+    rect.style.background = group.color + '12';
+
+    const label = document.createElement('div');
+    label.className = 'group-rect-label';
+    label.style.color = group.color;
+    label.textContent = group.name;
+    rect.appendChild(label);
+
+    canvas.insertBefore(rect, canvas.firstChild);
+  }
+}
+
+function updateGroupRects() {
+  for (const el of document.querySelectorAll('.group-rect')) {
+    const gid = el.dataset.groupId;
+    const group = appState.groups[gid];
+    if (!group) { el.remove(); continue; }
+    const members = getGroupNodes(gid);
+    if (!members.length) { el.remove(); continue; }
+
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    for (const n of members) {
+      const card = document.getElementById(`card-${n.id}`);
+      const cardW = card ? card.offsetWidth : 320;
+      const cardH = card ? card.offsetHeight : 160;
+      minX = Math.min(minX, n.pos.x);
+      minY = Math.min(minY, n.pos.y);
+      maxX = Math.max(maxX, n.pos.x + cardW);
+      maxY = Math.max(maxY, n.pos.y + cardH);
+    }
+    const pad = 30;
+    el.style.left = (minX - pad) + 'px';
+    el.style.top = (minY - pad) + 'px';
+    el.style.width = (maxX - minX + pad * 2) + 'px';
+    el.style.height = (maxY - minY + pad * 2) + 'px';
   }
 }
 
@@ -2057,6 +2264,7 @@ function renderEdges(stats) {
 
     const isByproduct = (edge.mode || 'auto') === 'byproduct';
     const isFromInput = appState.nodes[edge.fromNode]?.type === 'input';
+    const interGroup = isInterGroupEdge(edge);
     const color = isByproduct ? '#f0883e' : isFromInput ? '#3fb950' : '#58a6ff';
     const marker = isByproduct ? 'url(#arr-orange)' : isFromInput ? 'url(#arr-green)' : 'url(#arr-blue)';
 
@@ -2081,10 +2289,11 @@ function renderEdges(stats) {
     path.setAttribute('d', d);
     path.setAttribute('fill', 'none');
     path.setAttribute('stroke', color);
-    path.setAttribute('stroke-width', '1.5');
-    path.setAttribute('opacity', '0.65');
+    path.setAttribute('stroke-width', interGroup ? '2.5' : '1.5');
+    path.setAttribute('opacity', interGroup ? '0.85' : '0.65');
     path.setAttribute('marker-end', marker);
     if (isByproduct) path.setAttribute('stroke-dasharray', '6,3');
+    else if (interGroup) path.setAttribute('stroke-dasharray', '8,4');
     path.style.pointerEvents = 'none';
     path.classList.add('edge-path');
     path.dataset.edgeId = edge.id;
@@ -2096,10 +2305,23 @@ function renderEdges(stats) {
     const rf = getResolvedFlow(edge.id);
     const edgeMode = edge.mode || 'auto';
     const modeLabel = edgeMode === 'auto' ? 'AUTO' : edgeMode === 'byproduct' ? 'SURPLUS' : '';
+
+    let transportLine = null;
+    if (edge.transportId && transportProfiles[edge.transportId] && rf.flow > 0) {
+      const p = transportProfiles[edge.transportId];
+      const flowPerDay = (rf.flow / rf.interval) * 86400;
+      const cap = getTransportCapacity(edge.transportId, edge.fromMaterial, edge.transportCars);
+      const trips = flowPerDay / cap;
+      const carsStr = p.multiCar ? ` ×${edge.transportCars || p.defaultCars}` : '';
+      const shortName = p.name.length > 20 ? p.name.slice(0, 18) + '…' : p.name;
+      transportLine = `${trips < 0.01 ? '<0.01' : trips.toFixed(1)} trips/day (${shortName}${carsStr})`;
+    }
+
     if (rf.flow > 0) {
       const labelG = addSvgLabel(svg, mx, my,
         `${modeLabel ? modeLabel+' ' : ''}${fmt(rf.flow)} ${matName(edge.fromMaterial)}`,
-        `per ${formatTime(rf.interval)}`
+        `per ${formatTime(rf.interval)}`,
+        transportLine
       );
       if (labelG) { labelG.classList.add('edge-label'); labelG.dataset.edgeId = edge.id; }
     } else {
@@ -2112,9 +2334,9 @@ function renderEdges(stats) {
   }
 }
 
-function addSvgLabel(svg, x, y, line1, line2) {
+function addSvgLabel(svg, x, y, line1, line2, line3) {
   const g = document.createElementNS('http://www.w3.org/2000/svg','g');
-  const lines = [line1, line2].filter(Boolean);
+  const lines = [line1, line2, line3].filter(Boolean);
   const lh = 12, pad = 4;
   const w = Math.max(...lines.map(l=>l.length*5.5)) + pad*2;
   const h = lines.length * lh + pad;
@@ -2129,7 +2351,7 @@ function addSvgLabel(svg, x, y, line1, line2) {
     const t = document.createElementNS('http://www.w3.org/2000/svg','text');
     t.setAttribute('x', x); t.setAttribute('y', y - h/2 + pad + (i+.85)*lh);
     t.setAttribute('text-anchor','middle');
-    t.setAttribute('fill', i===0?'#79c0ff':'#6e7681');
+    t.setAttribute('fill', i===0?'#79c0ff': i===2?'#bc8cff':'#6e7681');
     t.setAttribute('font-size','9');
     t.setAttribute('font-family','JetBrains Mono,Fira Code,Consolas,monospace');
     t.textContent = ln;
@@ -2142,6 +2364,31 @@ function addSvgLabel(svg, x, y, line1, line2) {
 // ═══════════════════════════════════════════════════════════════
 // SUMMARY PANEL
 // ═══════════════════════════════════════════════════════════════
+function computeGroupPower(nodeIds, stats) {
+  let avgC = 0, peakC = 0, avgP = 0, peakP = 0;
+  for (const nid of nodeIds) {
+    const st = stats[nid];
+    if (!st) continue;
+    const avg = st.avgPower || 0;
+    const peak = st.peakPower || 0;
+    if (peak < 0) { avgC += avg; peakC += peak; }
+    else if (peak > 0) { avgP += avg; peakP += peak; }
+  }
+  return { avgC, peakC, avgP, peakP, netAvg: avgP + avgC, netPeak: peakP + peakC };
+}
+
+function fmtPower(pw) {
+  if (pw.peakC === 0 && pw.peakP === 0) return { str: '0 MW', cls: '', warn: '' };
+  const netCls = pw.netAvg >= 0 ? 'green' : 'red';
+  const netSign = pw.netAvg >= 0 ? '+' : '';
+  let warn = '';
+  if (pw.netAvg < 0) warn = 'Demand exceeds supply';
+  else if (pw.peakC !== 0 && pw.peakP !== 0 && pw.netPeak < 0) warn = 'Peak can exceed supply';
+  return { str: `${netSign}${pw.netAvg.toFixed(1)} MW`, cls: netCls, warn };
+}
+
+let _activeSumTab = 'overview';
+
 function renderSummary(stats) {
   const body = document.getElementById('sum-body');
   const nodeIds = Object.keys(appState.nodes);
@@ -2150,136 +2397,308 @@ function renderSummary(stats) {
     return;
   }
 
-  let html = '';
-
-  // Outputs
+  const groupIds = Object.keys(appState.groups);
+  const hasGroups = groupIds.length > 0;
+  const prodNodes = nodeIds.filter(id => appState.nodes[id].type === 'production');
   const outputNodes = nodeIds.filter(id => appState.nodes[id].type === 'output');
+  const inputNodes = nodeIds.filter(id => appState.nodes[id].type === 'input');
+
+  // ════════════════════════════════════════════════════
+  // TAB: OVERVIEW — groups, outputs, facilities, unresolved
+  // ════════════════════════════════════════════════════
+  let tabOverview = '';
+
+  // Groups
+  tabOverview += `<div class="sum-sec" style="display:flex;align-items:center;justify-content:space-between">
+    <span>Facility Groups</span>
+    <button class="sum-add-group-btn" id="sum-add-group" title="New empty group" style="background:#21262d;border:1px solid #30363d;color:#c9d1d9;font-size:9px;font-family:inherit;border-radius:3px;padding:2px 8px;cursor:pointer">+ Group</button>
+  </div>`;
+  if (!hasGroups) {
+    tabOverview += `<div class="sum-row"><span class="sum-name" style="color:#6e7681">No groups yet. Select nodes and right-click.</span></div>`;
+  }
+  for (const gid of groupIds) {
+    const g = appState.groups[gid];
+    const members = getGroupNodes(gid);
+    const prodInGroup = members.filter(n => n.type === 'production').map(n => n.id);
+    const pw = computeGroupPower(prodInGroup, stats);
+    const pf = fmtPower(pw);
+    tabOverview += `<div class="sum-group-row" data-group="${gid}">
+      <div style="display:flex;align-items:center;gap:6px;padding:4px 8px;border-left:3px solid ${g.color};margin:2px 0">
+        <span class="sum-group-name" data-group="${gid}" style="font-size:10px;font-weight:600;color:${g.color};cursor:text;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="Click to rename">${g.name}</span>
+        <span style="font-size:8px;color:#6e7681">${prodInGroup.length}f</span>
+        <span style="font-size:8px" class="${pf.cls}">${pf.str}</span>
+        <button class="sum-group-del" data-group="${gid}" style="background:none;border:none;color:#ff7b72;font-size:10px;cursor:pointer;padding:0 2px" title="Delete group">✕</button>
+      </div>
+      ${pf.warn ? `<div style="padding:0 8px 2px 11px;font-size:8px;color:${pw.netAvg < 0 ? '#ff7b72' : '#f0883e'}">⚠ ${pf.warn}</div>` : ''}
+    </div>`;
+  }
+  if (hasGroups) {
+    const ungroupedProd = nodeIds.filter(id => appState.nodes[id].type === 'production' && !appState.nodes[id].group);
+    if (ungroupedProd.length) {
+      const pw = computeGroupPower(ungroupedProd, stats);
+      const pf = fmtPower(pw);
+      tabOverview += `<div style="display:flex;align-items:center;gap:6px;padding:4px 8px;border-left:3px solid #6e7681;margin:2px 0">
+        <span style="font-size:10px;font-weight:600;color:#6e7681;flex:1">Ungrouped</span>
+        <span style="font-size:8px;color:#6e7681">${ungroupedProd.length}f</span>
+        <span style="font-size:8px" class="${pf.cls}">${pf.str}</span>
+      </div>`;
+    }
+  }
+
+  // Output demands
   if (outputNodes.length) {
-    html += `<div class="sum-sec">Output Demands</div>`;
+    tabOverview += `<div class="sum-sec">Output Demands</div>`;
     for (const nid of outputNodes) {
       const n = appState.nodes[nid];
       const incoming = getIncomingEdges(nid);
       let connPerSec = 0;
-      for (const e of incoming) {
-        const rf = getResolvedFlow(e.id);
-        connPerSec += rf.flow / rf.interval;
-      }
+      for (const e of incoming) { const rf = getResolvedFlow(e.id); connPerSec += rf.flow / rf.interval; }
       const connPerI = connPerSec * n.intervalSec;
       const cls = connPerI >= n.desiredAmount - 0.001 ? 'green' : 'red';
-      html += sumRow(matName(n.materialKey), `<span class="${cls}">${fmt(connPerI)}/${fmt(n.desiredAmount)}</span> per ${formatTime(n.intervalSec)}`);
+      tabOverview += sumRow(matName(n.materialKey), `<span class="${cls}">${fmt(connPerI)}/${fmt(n.desiredAmount)}</span> per ${formatTime(n.intervalSec)}`);
     }
   }
 
-  // Production facilities
-  const prodNodes = nodeIds.filter(id => appState.nodes[id].type === 'production');
+  // Facilities
   if (prodNodes.length) {
-    html += `<div class="sum-sec">Facilities</div>`;
+    tabOverview += `<div class="sum-sec">Facilities</div>`;
     for (const nid of prodNodes) {
       const n = appState.nodes[nid];
       const r = getRecipeForNode(nid);
       if (!r) continue;
       const s = stats[nid] || {};
       const loc = r.upgradeName ? `${r.buildingName} (${r.upgradeName})` : r.buildingName;
-      html += sumRow(loc, `<span class="facilities-badge">${s.facilities||0}×</span> Q:${n.queues||1}`);
+      const groupTag = n.group && appState.groups[n.group]
+        ? `<span style="color:${appState.groups[n.group].color};font-size:8px;margin-right:3px">●</span>` : '';
+      tabOverview += sumRow(`${groupTag}${loc}`, `<span class="facilities-badge">${s.facilities||0}×</span> Q:${n.queues||1}`);
     }
   }
 
-  // Power breakdown
-  let avgConsumption = 0, peakConsumption = 0;
-  let avgProduction = 0, peakProduction = 0;
-  for (const nid of prodNodes) {
-    const st = stats[nid];
-    if (!st) continue;
-    const avg = st.avgPower || 0;
-    const peak = st.peakPower || 0;
-    if (peak < 0) {
-      avgConsumption += avg;
-      peakConsumption += peak;
-    } else if (peak > 0) {
-      avgProduction += avg;
-      peakProduction += peak;
-    }
-  }
-  if (peakConsumption !== 0 || peakProduction !== 0) {
-    const netAvg = avgProduction + avgConsumption;
-    const netPeak = peakProduction + peakConsumption;
-    html += `<div class="sum-sec">Power</div>`;
-    if (peakConsumption !== 0) {
-      html += sumRow('Avg consumption', `${avgConsumption.toFixed(1)} MW`, 'red');
-      html += sumRow('Peak consumption', `${peakConsumption} MW`, 'red');
-    }
-    if (peakProduction !== 0) {
-      html += sumRow('Avg production', `+${avgProduction.toFixed(1)} MW`, 'green');
-      html += sumRow('Peak production', `+${peakProduction} MW`, 'green');
-    }
-    const netCls = netAvg >= 0 ? 'green' : 'red';
-    const netSign = netAvg >= 0 ? '+' : '';
-    html += sumRow('Net average', `${netSign}${netAvg.toFixed(1)} MW`, netCls);
-    if (netAvg < 0) {
-      html += sumRow('', `<span style="font-size:8px;color:#ff7b72">⚠ Avg consumption exceeds avg production</span>`);
-    } else if (peakConsumption !== 0 && peakProduction !== 0 && netPeak < 0) {
-      html += sumRow('', `<span style="font-size:8px;color:#f0883e">⚠ Peak consumption can exceed peak production</span>`);
-    }
-
-    // Per-node power breakdown
-    const pwNodes = prodNodes.filter(nid => (stats[nid]?.peakPower || 0) !== 0);
-    if (pwNodes.length > 1) {
-      html += `<div class="sum-sec">Power per Node</div>`;
-      for (const nid of pwNodes) {
-        const st = stats[nid];
-        const n = appState.nodes[nid];
-        const r = getRecipeForNode(nid);
-        if (!r) continue;
-        const loc = r.upgradeName ? `${r.buildingName} (${r.upgradeName})` : r.buildingName;
-        const utilPct = Math.round((st.utilization || 0) * 100);
-        const avg = (st.avgPower || 0);
-        const pk = (st.peakPower || 0);
-        const cls = avg < 0 ? 'red' : 'green';
-        const sign = avg >= 0 ? '+' : '';
-        html += sumRow(`${loc} ×${st.facilities||0}`, `<span class="${cls}">${sign}${avg.toFixed(1)}</span> <span style="color:#6e7681">(${utilPct}%)</span>`);
-      }
-    }
-  }
-
-  // Input sources
-  const inputNodes = nodeIds.filter(id => appState.nodes[id].type === 'input');
-  if (inputNodes.length) {
-    html += `<div class="sum-sec">Input Sources (collected)</div>`;
-    for (const nid of inputNodes) {
-      const n = appState.nodes[nid];
-      const outgoing = getOutgoingEdges(nid);
-      let totalAllocPerSec = 0;
-      for (const e of outgoing) {
-        const rf = getResolvedFlow(e.id);
-        totalAllocPerSec += rf.flow / rf.interval;
-      }
-      const totalAllocPerInterval = totalAllocPerSec * n.intervalSec;
-      html += sumRow(matName(n.materialKey), `${fmt(totalAllocPerInterval)} per ${formatTime(n.intervalSec)}`, 'amber');
-    }
-  }
-
-  // Unresolved: production nodes with inputs that have 0 connected
+  // Unresolved
   const unresolved = [];
   for (const nid of prodNodes) {
     const r = getRecipeForNode(nid);
     if (!r) continue;
     for (const matKey of Object.keys(r.inputs)) {
       const { neededPerSec, connectedPerSec } = getInputStatus(nid, matKey, stats);
-      if (neededPerSec > 0 && connectedPerSec < 0.0001) {
-        unresolved.push({ nid, matKey });
-      }
+      if (neededPerSec > 0 && connectedPerSec < 0.0001) unresolved.push({ nid, matKey });
     }
   }
   if (unresolved.length) {
-    html += `<div class="sum-sec" style="color:#ff7b72">Unresolved Inputs (${unresolved.length})</div>`;
+    tabOverview += `<div class="sum-sec" style="color:#ff7b72">Unresolved Inputs (${unresolved.length})</div>`;
     for (const { nid, matKey } of unresolved) {
       const r = getRecipeForNode(nid);
       const loc = r ? (r.upgradeName ? `${r.buildingName} (${r.upgradeName})` : r.buildingName) : '?';
-      html += sumRow(`${loc} → ${matName(matKey)}`, '0', 'red');
+      tabOverview += sumRow(`${loc} → ${matName(matKey)}`, '0', 'red');
     }
   }
 
+  // ════════════════════════════════════════════════════
+  // TAB: POWER — full power breakdowns per group
+  // ════════════════════════════════════════════════════
+  let tabPower = '';
+
+  function renderPowerSection(label, nodeIdList, color) {
+    const pw = computeGroupPower(nodeIdList, stats);
+    if (pw.peakC === 0 && pw.peakP === 0) return '';
+    let h = `<div class="sum-sec"${color ? ` style="border-left:3px solid ${color};padding-left:6px"` : ''}>${label}</div>`;
+    if (pw.peakC !== 0) {
+      h += sumRow('Avg consumption', `${pw.avgC.toFixed(1)} MW`, 'red');
+      h += sumRow('Peak consumption', `${pw.peakC.toFixed(0)} MW`, 'red');
+    }
+    if (pw.peakP !== 0) {
+      h += sumRow('Avg production', `+${pw.avgP.toFixed(1)} MW`, 'green');
+      h += sumRow('Peak production', `+${pw.peakP.toFixed(0)} MW`, 'green');
+    }
+    const pf = fmtPower(pw);
+    h += sumRow('Net average', pf.str, pf.cls);
+    if (pf.warn) h += sumRow('', `<span style="font-size:8px;color:${pw.netAvg<0?'#ff7b72':'#f0883e'}">⚠ ${pf.warn}</span>`);
+
+    const pwNodes = nodeIdList.filter(nid => (stats[nid]?.peakPower || 0) !== 0);
+    if (pwNodes.length > 1) {
+      h += `<div class="sum-sec" style="font-size:8px;color:#6e7681;margin-top:6px">Per-node breakdown</div>`;
+      for (const nid of pwNodes) {
+        const st = stats[nid];
+        const n = appState.nodes[nid];
+        const r = getRecipeForNode(nid);
+        if (!r) continue;
+        const loc = r.upgradeName ? `${r.buildingName} (${r.upgradeName})` : r.buildingName;
+        const avg = st.avgPower || 0;
+        const cls = avg < 0 ? 'red' : 'green';
+        const sign = avg >= 0 ? '+' : '';
+        const utilPct = Math.round((st.utilization || 0) * 100);
+        h += sumRow(`${loc} ×${st.facilities||0}`, `<span class="${cls}">${sign}${avg.toFixed(1)}</span> <span style="color:#6e7681">(${utilPct}%)</span>`);
+      }
+    }
+    return h;
+  }
+
+  if (hasGroups) {
+    for (const gid of groupIds) {
+      const g = appState.groups[gid];
+      const prodInGroup = getGroupNodes(gid).filter(n => n.type === 'production').map(n => n.id);
+      tabPower += renderPowerSection(g.name, prodInGroup, g.color);
+    }
+    const ungroupedProd = nodeIds.filter(id => appState.nodes[id].type === 'production' && !appState.nodes[id].group);
+    if (ungroupedProd.length) tabPower += renderPowerSection('Ungrouped', ungroupedProd, '#6e7681');
+  } else {
+    tabPower += renderPowerSection('All Facilities', prodNodes, null);
+  }
+  if (!tabPower) tabPower = '<div class="sum-empty">No power usage yet.</div>';
+
+  // ════════════════════════════════════════════════════
+  // TAB: TRANSPORT — inter-group logistics
+  // ════════════════════════════════════════════════════
+  let tabTransport = '';
+  const interGroupEdges = Object.values(appState.edges).filter(e => isInterGroupEdge(e));
+
+  if (!hasGroups) {
+    tabTransport = '<div class="sum-empty">Create facility groups to see inter-group transport analysis.</div>';
+  } else if (!interGroupEdges.length) {
+    tabTransport = '<div class="sum-empty">No edges cross between groups yet.</div>';
+  } else {
+    let totalTrips = 0;
+    let unconfiguredCount = 0;
+    const routeMap = {};
+    for (const edge of interGroupEdges) {
+      const fromNode = appState.nodes[edge.fromNode];
+      const toNode = appState.nodes[edge.toNode];
+      const fg = fromNode?.group || '_';
+      const tg = toNode?.group || '_';
+      const key = `${fg}→${tg}:${edge.fromMaterial}`;
+      if (!routeMap[key]) routeMap[key] = { fromGroup: fg, toGroup: tg, mat: edge.fromMaterial, totalFlow: 0, totalTrips: 0, configured: true, transportName: '' };
+      const rf = getResolvedFlow(edge.id);
+      const flowPerDay = rf.flow > 0 ? (rf.flow / rf.interval) * 86400 : 0;
+      routeMap[key].totalFlow += flowPerDay;
+      if (edge.transportId && transportProfiles[edge.transportId]) {
+        const p = transportProfiles[edge.transportId];
+        const cap = getTransportCapacity(edge.transportId, edge.fromMaterial, edge.transportCars);
+        const trips = flowPerDay > 0 ? calcTripsPerDay(flowPerDay, edge.transportId, edge.transportCars, edge.fromMaterial) : 0;
+        routeMap[key].totalTrips += trips;
+        totalTrips += trips;
+        const carsStr = p.multiCar ? ` ×${edge.transportCars || p.defaultCars}` : '';
+        routeMap[key].transportName = `${p.name}${carsStr}`;
+        routeMap[key].capPerTrip = cap;
+      } else {
+        routeMap[key].configured = false;
+        unconfiguredCount++;
+      }
+    }
+
+    const tripsStr = totalTrips > 0 ? totalTrips.toFixed(1) : '0';
+    const unconfigNote = unconfiguredCount > 0 ? ` <span style="color:#f0883e">(${unconfiguredCount} unconfigured)</span>` : '';
+    tabTransport += `<div class="sum-sec">Total: <span style="color:#79c0ff">${tripsStr} trips/day</span>${unconfigNote}</div>`;
+
+    for (const route of Object.values(routeMap)) {
+      const fromGroup = route.fromGroup !== '_' ? appState.groups[route.fromGroup] : null;
+      const toGroup = route.toGroup !== '_' ? appState.groups[route.toGroup] : null;
+      const fromLabel = fromGroup ? fromGroup.name : 'Ungrouped';
+      const toLabel = toGroup ? toGroup.name : 'Ungrouped';
+      const fromColor = fromGroup ? fromGroup.color : '#6e7681';
+
+      let info;
+      if (!route.configured) {
+        info = `<span style="color:#f0883e">no transport set</span>`;
+      } else {
+        const tripsVal = route.totalTrips < 0.01 ? '<0.01' : route.totalTrips.toFixed(2);
+        info = `<span style="color:#79c0ff">${tripsVal} trips/day</span>`;
+      }
+
+      tabTransport += `<div style="border-left:3px solid ${fromColor};padding:3px 0 3px 8px;margin:3px 0">
+        <div style="font-size:9px;color:#8b949e">${fromLabel} → ${toLabel}</div>
+        <div style="font-size:10px;color:#c9d1d9;font-weight:600">${fmt(route.totalFlow)}/day ${matName(route.mat)}</div>
+        <div style="font-size:9px">${info}${route.transportName ? ` <span style="color:#6e7681">via ${route.transportName} (${fmt(route.capPerTrip)}/trip)</span>` : ''}</div>
+      </div>`;
+    }
+  }
+
+  // ════════════════════════════════════════════════════
+  // TAB: I/O — inputs and outputs
+  // ════════════════════════════════════════════════════
+  let tabIO = '';
+
+  if (outputNodes.length) {
+    tabIO += `<div class="sum-sec">Output Demands</div>`;
+    for (const nid of outputNodes) {
+      const n = appState.nodes[nid];
+      const incoming = getIncomingEdges(nid);
+      let connPerSec = 0;
+      for (const e of incoming) { const rf = getResolvedFlow(e.id); connPerSec += rf.flow / rf.interval; }
+      const connPerI = connPerSec * n.intervalSec;
+      const cls = connPerI >= n.desiredAmount - 0.001 ? 'green' : 'red';
+      tabIO += sumRow(matName(n.materialKey), `<span class="${cls}">${fmt(connPerI)}/${fmt(n.desiredAmount)}</span> per ${formatTime(n.intervalSec)}`);
+    }
+  }
+
+  if (inputNodes.length) {
+    tabIO += `<div class="sum-sec">Input Sources (collected)</div>`;
+    for (const nid of inputNodes) {
+      const n = appState.nodes[nid];
+      const outgoing = getOutgoingEdges(nid);
+      let totalAllocPerSec = 0;
+      for (const e of outgoing) { const rf = getResolvedFlow(e.id); totalAllocPerSec += rf.flow / rf.interval; }
+      const totalAllocPerInterval = totalAllocPerSec * n.intervalSec;
+      tabIO += sumRow(matName(n.materialKey), `${fmt(totalAllocPerInterval)} per ${formatTime(n.intervalSec)}`, 'amber');
+    }
+  }
+
+  if (unresolved.length) {
+    tabIO += `<div class="sum-sec" style="color:#ff7b72">Unresolved Inputs (${unresolved.length})</div>`;
+    for (const { nid, matKey } of unresolved) {
+      const r = getRecipeForNode(nid);
+      const loc = r ? (r.upgradeName ? `${r.buildingName} (${r.upgradeName})` : r.buildingName) : '?';
+      tabIO += sumRow(`${loc} → ${matName(matKey)}`, '0', 'red');
+    }
+  }
+  if (!tabIO) tabIO = '<div class="sum-empty">No inputs or outputs configured.</div>';
+
+  // ════════════════════════════════════════════════════
+  // Assemble all tabs
+  // ════════════════════════════════════════════════════
+  const tabs = {
+    overview: tabOverview,
+    power: tabPower,
+    transport: tabTransport,
+    io: tabIO,
+  };
+
+  let html = '';
+  for (const [key, content] of Object.entries(tabs)) {
+    html += `<div class="sum-tab-pane${key === _activeSumTab ? ' active' : ''}" data-pane="${key}">${content}</div>`;
+  }
   body.innerHTML = html;
+
+  // Update tab button active state
+  document.querySelectorAll('#sum-tabs .sum-tab').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.tab === _activeSumTab);
+  });
+
+  // Wire up group interactions (in overview pane)
+  body.querySelector('#sum-add-group')?.addEventListener('click', () => { addGroup(); render(); });
+  body.querySelectorAll('.sum-group-del').forEach(btn => {
+    btn.addEventListener('click', (e) => { e.stopPropagation(); removeGroup(btn.dataset.group); render(); });
+  });
+  body.querySelectorAll('.sum-group-name').forEach(el => {
+    el.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const gid = el.dataset.group;
+      const g = appState.groups[gid];
+      if (!g) return;
+      const input = document.createElement('input');
+      input.type = 'text';
+      input.value = g.name;
+      input.style.cssText = 'background:#21262d;border:1px solid #58a6ff;color:#c9d1d9;font-size:10px;font-family:inherit;border-radius:3px;padding:1px 4px;width:100%;outline:none';
+      el.replaceWith(input);
+      input.focus();
+      input.select();
+      const commit = () => { const val = input.value.trim(); if (val) renameGroup(gid, val); render(); };
+      input.addEventListener('blur', commit);
+      input.addEventListener('keydown', (ev) => {
+        if (ev.key === 'Enter') { ev.preventDefault(); commit(); }
+        if (ev.key === 'Escape') { ev.preventDefault(); render(); }
+      });
+    });
+  });
 }
 
 function sumRow(name, val, cls='') {
@@ -2341,6 +2760,24 @@ function showNodeContextMenu(nodeId, x, y) {
     html += `<div class="ctx-item" data-action="duplicate-input"><span class="icon">⧉</span>Duplicate Source Node</div>`;
   }
 
+  // Group actions
+  const groupIds = Object.keys(appState.groups);
+  const targetNodes = (selectedNodes.size > 1 && selectedNodes.has(nodeId)) ? [...selectedNodes] : [nodeId];
+  const nodeInGroup = node.group && appState.groups[node.group];
+
+  html += `<div class="ctx-sep"></div>`;
+  html += `<div class="ctx-label">GROUPS</div>`;
+  html += `<div class="ctx-item" data-action="create-group"><span class="icon">▣</span>Create Group from ${targetNodes.length > 1 ? `Selection (${targetNodes.length})` : 'Node'}</div>`;
+  if (groupIds.length) {
+    for (const gid of groupIds) {
+      const g = appState.groups[gid];
+      html += `<div class="ctx-item" data-action="add-to-group" data-group="${gid}"><span class="icon" style="color:${g.color}">●</span>Add to ${g.name}</div>`;
+    }
+  }
+  if (nodeInGroup) {
+    html += `<div class="ctx-item" data-action="remove-from-group"><span class="icon">○</span>Remove from ${appState.groups[node.group].name}</div>`;
+  }
+
   html += `<div class="ctx-sep"></div>`;
   if (selectedNodes.size > 1 && selectedNodes.has(nodeId)) {
     html += `<div class="ctx-item" data-action="copy-sel"><span class="icon">⧉</span>Copy Selection (${selectedNodes.size})</div>`;
@@ -2368,21 +2805,32 @@ function showNodeContextMenu(nodeId, x, y) {
       } else if (action === 'delete-sel') {
         deleteSelected();
         return;
+      } else if (action === 'create-group') {
+        const gid = addGroup();
+        for (const nid of targetNodes) setNodeGroup(nid, gid);
+      } else if (action === 'add-to-group') {
+        const gid = item.dataset.group;
+        for (const nid of targetNodes) setNodeGroup(nid, gid);
+      } else if (action === 'remove-from-group') {
+        for (const nid of targetNodes) removeNodeFromGroup(nid);
       } else if (action === 'duplicate') {
         const nid = addProductionNode(getRecipeForNode(nodeId), pos.x + 40, pos.y + 40);
         appState.nodes[nid].queues = node.queues;
+        if (node.group) appState.nodes[nid].group = node.group;
       } else if (action === 'duplicate-input') {
         const nid = addInputNode(node.materialKey, pos.x + 40, pos.y + 40);
         appState.nodes[nid].supplyAmount = node.supplyAmount;
         appState.nodes[nid].intervalSec = node.intervalSec;
+        if (node.group) appState.nodes[nid].group = node.group;
       } else if (action === 'add-output' && mat) {
         const outId = addOutputNode(mat, pos.x + 350, pos.y);
+        if (node.group) appState.nodes[outId].group = node.group;
         addEdge(nodeId, mat, outId, mat, 0, 'auto');
       } else if (action === 'add-input' && mat) {
         const inId = addInputNode(mat, pos.x - 350, pos.y);
+        if (node.group) appState.nodes[inId].group = node.group;
         addEdge(inId, mat, nodeId, mat, 0, 'auto');
       } else if (action === 'add-facility-for' && mat) {
-        // Open the resolver to pick a recipe
         closeAllPopups();
         render();
         setTimeout(() => {
@@ -2395,6 +2843,7 @@ function showNodeContextMenu(nodeId, x, y) {
         const recipe = allRecipesList.find(r => r.id === item.dataset.recipe);
         if (recipe) {
           const nid = addProductionNode(recipe, pos.x - 380, pos.y);
+          if (node.group) appState.nodes[nid].group = node.group;
           addEdge(nid, mat, nodeId, mat, 0, 'auto');
         }
       } else if (action === 'open-resolver' && mat) {
@@ -2450,6 +2899,16 @@ function showCanvasContextMenu(x, y, canvasX, canvasY) {
     html += `<div class="ctx-sep"></div>
     <div class="ctx-item" data-action="copy-sel"><span class="icon">⧉</span>Copy Selection (${selectedNodes.size}) <span style="margin-left:auto;font-size:9px;color:#6e7681">Ctrl+C</span></div>
     <div class="ctx-item danger" data-action="delete-sel"><span class="icon">✕</span>Delete Selection (${selectedNodes.size}) <span style="margin-left:auto;font-size:9px;color:#6e7681">Del</span></div>`;
+    html += `<div class="ctx-sep"></div>`;
+    html += `<div class="ctx-label">GROUPS</div>`;
+    html += `<div class="ctx-item" data-action="create-group"><span class="icon">▣</span>Create Group from Selection (${selectedNodes.size})</div>`;
+    const groupIds = Object.keys(appState.groups);
+    if (groupIds.length) {
+      for (const gid of groupIds) {
+        const g = appState.groups[gid];
+        html += `<div class="ctx-item" data-action="add-to-group" data-group="${gid}"><span class="icon" style="color:${g.color}">●</span>Add to ${g.name}</div>`;
+      }
+    }
   }
   html += `<div class="ctx-sep"></div>
     <div class="ctx-item" data-action="select-all"><span class="icon">▣</span>Select All <span style="margin-left:auto;font-size:9px;color:#6e7681">Ctrl+A</span></div>
@@ -2470,6 +2929,14 @@ function showCanvasContextMenu(x, y, canvasX, canvasY) {
         copySelectedNodes();
       } else if (item.dataset.action === 'delete-sel') {
         deleteSelected();
+      } else if (item.dataset.action === 'create-group') {
+        const gid = addGroup();
+        for (const nid of selectedNodes) setNodeGroup(nid, gid);
+        render();
+      } else if (item.dataset.action === 'add-to-group') {
+        const gid = item.dataset.group;
+        for (const nid of selectedNodes) setNodeGroup(nid, gid);
+        render();
       } else if (item.dataset.action === 'select-all') {
         selectAll();
       } else if (item.dataset.action === 'auto-layout') {
@@ -2486,6 +2953,92 @@ function showCanvasContextMenu(x, y, canvasX, canvasY) {
 // EDGE POPUP
 // ═══════════════════════════════════════════════════════════════
 let activeEdgePopup = null;
+
+function populateTransportSelect(selectEl, currentId, materialKey) {
+  selectEl.innerHTML = '<option value="">None (pipe / internal)</option>';
+  const catOrder = Object.entries(transportCategories).sort((a,b) => (a[1].order||0) - (b[1].order||0));
+  for (const [catKey, catDef] of catOrder) {
+    const profiles = Object.entries(transportProfiles).filter(([pid, p]) => {
+      if (p.category !== catKey) return false;
+      if (!materialKey) return true;
+      return isValidTransportItem(pid, materialKey);
+    });
+    if (!profiles.length) continue;
+    const group = document.createElement('optgroup');
+    group.label = catDef.name;
+    for (const [pid, p] of profiles) {
+      const opt = document.createElement('option');
+      opt.value = pid;
+      opt.textContent = p.multiCar ? `${p.name} (${p.perCarCapacity}/car)` : `${p.name} (${p.capacity})`;
+      if (pid === currentId) opt.selected = true;
+      group.appendChild(opt);
+    }
+    selectEl.appendChild(group);
+  }
+  // Keep the current selection even if it wouldn't normally be valid (user may have set it before)
+  if (currentId && !selectEl.querySelector(`option[value="${currentId}"]`)) {
+    const p = transportProfiles[currentId];
+    if (p) {
+      const opt = document.createElement('option');
+      opt.value = currentId;
+      opt.textContent = `${p.name} (incompatible)`;
+      opt.selected = true;
+      opt.style.color = '#f0883e';
+      selectEl.appendChild(opt);
+    }
+  }
+}
+
+function updateTransportInfoDisplay() {
+  if (!activeEdgePopup) return;
+  const edge = appState.edges[activeEdgePopup];
+  if (!edge) return;
+
+  const transportSel = document.getElementById('ep-transport');
+  const carsDiv = document.getElementById('ep-transport-cars');
+  const infoDiv = document.getElementById('ep-transport-info');
+  const capVal = document.getElementById('ep-cap-value');
+  const tripsVal = document.getElementById('ep-trips-value');
+  const warnDiv = document.getElementById('ep-transport-warn');
+  const carsInput = document.getElementById('ep-cars');
+
+  const pid = transportSel.value;
+  const profile = transportProfiles[pid];
+
+  if (!pid || !profile) {
+    carsDiv.style.display = 'none';
+    infoDiv.style.display = 'none';
+    return;
+  }
+
+  if (profile.multiCar) {
+    carsDiv.style.display = 'block';
+    carsInput.min = 1;
+    carsInput.max = profile.maxCars;
+    if (!carsInput.value || parseInt(carsInput.value) < 1) {
+      carsInput.value = edge.transportCars || profile.defaultCars;
+    }
+  } else {
+    carsDiv.style.display = 'none';
+  }
+
+  infoDiv.style.display = 'block';
+  const cars = profile.multiCar ? (parseInt(carsInput.value) || profile.defaultCars) : null;
+  const cap = getTransportCapacity(pid, edge.fromMaterial, cars);
+  capVal.textContent = `${fmt(cap)} ${matName(edge.fromMaterial)}`;
+
+  const rf = getResolvedFlow(edge.id);
+  const flowPerDay = rf.flow > 0 ? (rf.flow / rf.interval) * 86400 : 0;
+  if (flowPerDay > 0) {
+    const trips = flowPerDay / cap;
+    tripsVal.textContent = trips < 0.01 ? '< 0.01 trips/day' : `${trips.toFixed(2)} trips/day`;
+  } else {
+    tripsVal.textContent = 'No flow yet';
+  }
+
+  const valid = isValidTransportItem(pid, edge.fromMaterial);
+  warnDiv.style.display = valid ? 'none' : 'block';
+}
 
 function openEdgePopup(edgeId, x, y) {
   closeAllPopups();
@@ -2541,8 +3094,15 @@ function openEdgePopup(edgeId, x, y) {
     intervalSel.appendChild(opt);
   }
 
+  // Transport
+  const transportSel = document.getElementById('ep-transport');
+  populateTransportSelect(transportSel, edge.transportId || '', edge.fromMaterial);
+  const carsInput = document.getElementById('ep-cars');
+  carsInput.value = edge.transportCars || '';
+  updateTransportInfoDisplay();
+
   popup.style.left = Math.min(x, window.innerWidth - 280) + 'px';
-  popup.style.top  = Math.min(y, window.innerHeight - 200) + 'px';
+  popup.style.top  = Math.min(y, window.innerHeight - 260) + 'px';
   popup.classList.add('visible');
 }
 
@@ -2551,6 +3111,9 @@ document.getElementById('ep-mode')?.addEventListener('change', () => {
   document.getElementById('ep-manual-fields').style.display = isManual ? 'block' : 'none';
   document.getElementById('ep-auto-display').style.display = isManual ? 'none' : 'flex';
 });
+
+document.getElementById('ep-transport')?.addEventListener('change', updateTransportInfoDisplay);
+document.getElementById('ep-cars')?.addEventListener('input', updateTransportInfoDisplay);
 
 document.getElementById('ep-ok')?.addEventListener('click', () => {
   if (!activeEdgePopup) return;
@@ -2561,6 +3124,14 @@ document.getElementById('ep-ok')?.addEventListener('click', () => {
     if (newMode === 'manual') {
       edge.flowPerInterval = Math.max(0, parseFloat(document.getElementById('ep-flow').value) || 0);
       edge.intervalSec = parseInt(document.getElementById('ep-interval').value) || 86400;
+    }
+    const tid = document.getElementById('ep-transport').value || null;
+    edge.transportId = tid;
+    if (tid && transportProfiles[tid]?.multiCar) {
+      const cars = parseInt(document.getElementById('ep-cars').value);
+      edge.transportCars = (cars > 0) ? cars : null;
+    } else {
+      edge.transportCars = null;
     }
   }
   document.getElementById('edge-popup').classList.remove('visible');
@@ -2681,6 +3252,8 @@ function openResolver(consNodeId, inputMaterialKey, anchorEl) {
 
       if (action === 'new-input') {
         const nid = addInputNode(inputMaterialKey, consPos.x - 380, consPos.y);
+        const consGroup = appState.nodes[consNodeId]?.group;
+        if (consGroup) appState.nodes[nid].group = consGroup;
         addEdge(nid, inputMaterialKey, consNodeId, inputMaterialKey, 0, 'auto');
         closeResolver();
         render();
@@ -2701,6 +3274,8 @@ function openResolver(consNodeId, inputMaterialKey, anchorEl) {
         const recipe = allRecipesList.find(r => r.id === opt.dataset.recipe);
         if (recipe) {
           const nid = addProductionNode(recipe, consPos.x - 380, consPos.y);
+          const consGroup = appState.nodes[consNodeId]?.group;
+          if (consGroup) appState.nodes[nid].group = consGroup;
           addEdge(nid, inputMaterialKey, consNodeId, inputMaterialKey, 0, 'auto');
           closeResolver();
           render();
@@ -3184,7 +3759,10 @@ function onWrapMove(e) {
       const card = document.getElementById(`card-${sid}`);
       if (card) { card.style.left = nx + 'px'; card.style.top = ny + 'px'; }
     }
-    requestAnimationFrame(() => renderEdges(computeNodeStats()));
+    requestAnimationFrame(() => {
+      renderEdges(computeNodeStats());
+      updateGroupRects();
+    });
     return;
   }
   if (isSelecting && selectionRectEl) {
@@ -3335,7 +3913,6 @@ function copySelectedNodes() {
     if (n) copiedNodes[nid] = JSON.parse(JSON.stringify(n));
   }
 
-  // Copy edges that connect two selected nodes
   const copiedEdges = {};
   for (const [eid, e] of Object.entries(appState.edges)) {
     if (nodeSet.has(e.fromNode) && nodeSet.has(e.toNode)) {
@@ -3343,7 +3920,17 @@ function copySelectedNodes() {
     }
   }
 
-  const payload = { foxholeflow: true, nodes: copiedNodes, edges: copiedEdges };
+  // Collect group definitions referenced by copied nodes
+  const referencedGroupIds = new Set();
+  for (const n of Object.values(copiedNodes)) {
+    if (n.group && appState.groups[n.group]) referencedGroupIds.add(n.group);
+  }
+  const copiedGroups = {};
+  for (const gid of referencedGroupIds) {
+    copiedGroups[gid] = JSON.parse(JSON.stringify(appState.groups[gid]));
+  }
+
+  const payload = { foxholeflow: true, nodes: copiedNodes, edges: copiedEdges, groups: copiedGroups };
   navigator.clipboard.writeText(JSON.stringify(payload)).then(() => {
     showToast(`Copied ${nodeIds.length} node(s)`);
   }).catch(() => {
@@ -3360,13 +3947,26 @@ function pasteNodes() {
     const oldToNew = {};
     const oldNodes = data.nodes;
     const oldEdges = data.edges || {};
+    const oldGroups = data.groups || {};
+
+    // Remap groups: create new group IDs for pasted groups
+    const groupOldToNew = {};
+    for (const [oldGid, g] of Object.entries(oldGroups)) {
+      // Reuse existing group if it already exists with same id
+      if (appState.groups[oldGid]) {
+        groupOldToNew[oldGid] = oldGid;
+      } else {
+        const newGid = newGroupId();
+        appState.groups[newGid] = { id: newGid, name: g.name, color: g.color };
+        groupOldToNew[oldGid] = newGid;
+      }
+    }
 
     // Compute centroid of pasted nodes for offset
     const posArr = Object.values(oldNodes).map(n => n.pos || {x:0,y:0});
     const cx = posArr.reduce((s,p)=>s+p.x, 0) / (posArr.length||1);
     const cy = posArr.reduce((s,p)=>s+p.y, 0) / (posArr.length||1);
 
-    // Place paste centered on viewport
     const wrap = document.getElementById('canvas-wrap');
     const wr = wrap.getBoundingClientRect();
     const viewCenterCanvas = screenToCanvas(wr.left + wr.width/2, wr.top + wr.height/2);
@@ -3381,6 +3981,11 @@ function pasteNodes() {
       const newNode = JSON.parse(JSON.stringify(n));
       newNode.id = newId;
       newNode.pos = { x: Math.round((n.pos?.x || 0) + offX + 30), y: Math.round((n.pos?.y || 0) + offY + 30) };
+      if (newNode.group && groupOldToNew[newNode.group]) {
+        newNode.group = groupOldToNew[newNode.group];
+      } else if (newNode.group && !appState.groups[newNode.group]) {
+        delete newNode.group;
+      }
       appState.nodes[newId] = newNode;
       selectedNodes.add(newId);
     }
@@ -3399,7 +4004,6 @@ function pasteNodes() {
     }
 
     render();
-    // Re-apply selection highlight after render
     for (const nid of selectedNodes) {
       document.getElementById(`card-${nid}`)?.classList.add('selected');
     }
@@ -3486,19 +4090,25 @@ function buildShareState(includePositions) {
   const DRIVE_MAP = { demand: 0, capacity: 1 };
   const MODE_MAP = { auto: 0, manual: 1, byproduct: 2 };
 
+  // Build group index: groupId → integer index (for compact encoding)
+  const groupList = Object.values(appState.groups);
+  const groupIdxMap = {};
+  groupList.forEach((g, i) => { groupIdxMap[g.id] = i; });
+
   const nodes = [];
   for (const n of Object.values(appState.nodes)) {
     const nid = parseInt(n.id.slice(1));
+    const gIdx = n.group && n.group in groupIdxMap ? groupIdxMap[n.group] : -1;
     if (n.type === 'production') {
-      const a = [nid, 0, d(n.recipeId), n.queues, DRIVE_MAP[n.driveMode] || 0, n.fixedFacilities];
+      const a = [nid, 0, d(n.recipeId), n.queues, DRIVE_MAP[n.driveMode] || 0, n.fixedFacilities, gIdx];
       if (includePositions) a.push(Math.round(n.pos.x), Math.round(n.pos.y));
       nodes.push(a);
     } else if (n.type === 'output') {
-      const a = [nid, 1, d(n.materialKey), n.desiredAmount, n.intervalSec];
+      const a = [nid, 1, d(n.materialKey), n.desiredAmount, n.intervalSec, gIdx];
       if (includePositions) a.push(Math.round(n.pos.x), Math.round(n.pos.y));
       nodes.push(a);
     } else if (n.type === 'input') {
-      const a = [nid, 2, d(n.materialKey), n.supplyAmount, n.intervalSec];
+      const a = [nid, 2, d(n.materialKey), n.supplyAmount, n.intervalSec, gIdx];
       if (includePositions) a.push(Math.round(n.pos.x), Math.round(n.pos.y));
       nodes.push(a);
     }
@@ -3512,10 +4122,14 @@ function buildShareState(includePositions) {
       parseInt(e.toNode.slice(1)), d(e.toMaterial),
       e.flowPerInterval, e.intervalSec,
       MODE_MAP[e.mode] || 0,
+      d(e.transportId || null),
+      e.transportCars || 0,
     ]);
   }
 
-  return JSON.stringify({ d: dict, n: nodes, e: edges, p: includePositions ? 1 : 0 });
+  const groups = groupList.map(g => [d(g.name), d(g.color)]);
+
+  return JSON.stringify({ d: dict, n: nodes, e: edges, g: groups, p: includePositions ? 1 : 0 });
 }
 
 function loadShareState(json) {
@@ -3525,43 +4139,75 @@ function loadShareState(json) {
   const DRIVES = ['demand', 'capacity'];
   const MODES = ['auto', 'manual', 'byproduct'];
   const hasPos = s.p === 1;
+  const hasGroups = !!(s.g && s.g.length);
 
   appState.nodes = {};
   appState.edges = {};
+  appState.groups = {};
+
+  const groupIdList = [];
+  if (hasGroups) {
+    for (const ga of s.g) {
+      const gid = newGroupId();
+      appState.groups[gid] = { id: gid, name: dict[ga[0]] || 'Group', color: dict[ga[1]] || GROUP_COLORS[0] };
+      groupIdList.push(gid);
+    }
+  }
 
   for (const a of s.n) {
     const id = `n${a[0]}`;
     const type = TYPES[a[1]];
     if (type === 'production') {
-      appState.nodes[id] = {
-        id, type,
-        recipeId: dict[a[2]],
-        queues: a[3],
-        driveMode: DRIVES[a[4]] || 'demand',
-        fixedFacilities: a[5],
-        pos: hasPos ? { x: a[6], y: a[7] } : { x: 0, y: 0 },
-      };
+      if (hasGroups) {
+        const gIdx = a[6] ?? -1;
+        appState.nodes[id] = {
+          id, type, recipeId: dict[a[2]], queues: a[3],
+          driveMode: DRIVES[a[4]] || 'demand', fixedFacilities: a[5],
+          pos: hasPos ? { x: a[7], y: a[8] } : { x: 0, y: 0 },
+        };
+        if (gIdx >= 0 && groupIdList[gIdx]) appState.nodes[id].group = groupIdList[gIdx];
+      } else {
+        appState.nodes[id] = {
+          id, type, recipeId: dict[a[2]], queues: a[3],
+          driveMode: DRIVES[a[4]] || 'demand', fixedFacilities: a[5],
+          pos: hasPos ? { x: a[6], y: a[7] } : { x: 0, y: 0 },
+        };
+      }
     } else if (type === 'output') {
-      appState.nodes[id] = {
-        id, type,
-        materialKey: dict[a[2]],
-        desiredAmount: a[3],
-        intervalSec: a[4],
-        pos: hasPos ? { x: a[5], y: a[6] } : { x: 0, y: 0 },
-      };
+      if (hasGroups) {
+        const gIdx = a[5] ?? -1;
+        appState.nodes[id] = {
+          id, type, materialKey: dict[a[2]], desiredAmount: a[3], intervalSec: a[4],
+          pos: hasPos ? { x: a[6], y: a[7] } : { x: 0, y: 0 },
+        };
+        if (gIdx >= 0 && groupIdList[gIdx]) appState.nodes[id].group = groupIdList[gIdx];
+      } else {
+        appState.nodes[id] = {
+          id, type, materialKey: dict[a[2]], desiredAmount: a[3], intervalSec: a[4],
+          pos: hasPos ? { x: a[5], y: a[6] } : { x: 0, y: 0 },
+        };
+      }
     } else if (type === 'input') {
-      appState.nodes[id] = {
-        id, type,
-        materialKey: dict[a[2]],
-        supplyAmount: a[3],
-        intervalSec: a[4],
-        pos: hasPos ? { x: a[5], y: a[6] } : { x: 0, y: 0 },
-      };
+      if (hasGroups) {
+        const gIdx = a[5] ?? -1;
+        appState.nodes[id] = {
+          id, type, materialKey: dict[a[2]], supplyAmount: a[3], intervalSec: a[4],
+          pos: hasPos ? { x: a[6], y: a[7] } : { x: 0, y: 0 },
+        };
+        if (gIdx >= 0 && groupIdList[gIdx]) appState.nodes[id].group = groupIdList[gIdx];
+      } else {
+        appState.nodes[id] = {
+          id, type, materialKey: dict[a[2]], supplyAmount: a[3], intervalSec: a[4],
+          pos: hasPos ? { x: a[5], y: a[6] } : { x: 0, y: 0 },
+        };
+      }
     }
   }
 
   for (const a of s.e) {
     const id = `e${a[0]}`;
+    const transportId = (a.length > 8 && a[8] >= 0) ? dict[a[8]] : null;
+    const transportCars = (a.length > 9 && a[9]) ? a[9] : null;
     appState.edges[id] = {
       id,
       fromNode: `n${a[1]}`, fromMaterial: dict[a[2]],
@@ -3569,6 +4215,8 @@ function loadShareState(json) {
       flowPerInterval: a[5],
       intervalSec: a[6],
       mode: MODES[a[7]] || 'auto',
+      transportId: transportId || null,
+      transportCars: transportCars || null,
     };
   }
 
@@ -3629,10 +4277,11 @@ async function loadFromUrlFragment() {
 // ═══════════════════════════════════════════════════════════════
 function saveLayout() {
   const state = {
-    version: 4,
+    version: 5,
     nodes: appState.nodes,
     edges: appState.edges,
-    _nodeCounter, _edgeCounter,
+    groups: appState.groups,
+    _nodeCounter, _edgeCounter, _groupCounter,
   };
   const json = JSON.stringify(state, null, 2);
   const a = document.createElement('a');
@@ -3647,14 +4296,17 @@ function loadLayout(json) {
     const state = JSON.parse(json);
     appState.nodes = state.nodes || {};
     appState.edges = state.edges || {};
+    appState.groups = state.groups || {};
     _nodeCounter = state._nodeCounter || 0;
     _edgeCounter = state._edgeCounter || 0;
+    _groupCounter = state._groupCounter || 0;
 
-    // Ensure counters are at least max existing
     const maxN = Object.keys(appState.nodes).map(id => parseInt(id.slice(1))||0).reduce((a,b)=>Math.max(a,b), 0);
     const maxE = Object.keys(appState.edges).map(id => parseInt(id.slice(1))||0).reduce((a,b)=>Math.max(a,b), 0);
+    const maxG = Object.keys(appState.groups).map(id => parseInt(id.slice(1))||0).reduce((a,b)=>Math.max(a,b), 0);
     _nodeCounter = Math.max(_nodeCounter, maxN);
     _edgeCounter = Math.max(_edgeCounter, maxE);
+    _groupCounter = Math.max(_groupCounter, maxG);
 
     render();
     requestAnimationFrame(() => centerView());
@@ -3675,9 +4327,13 @@ function showToast(msg) {
 // ═══════════════════════════════════════════════════════════════
 async function init() {
   try {
-    const resp = await fetch('./foxhole_planner_data.json');
-    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-    parseData(await resp.json());
+    const [plannerResp, transportResp] = await Promise.all([
+      fetch('./foxhole_planner_data.json'),
+      fetch('./foxholeflow_transport.json'),
+    ]);
+    if (!plannerResp.ok) throw new Error(`HTTP ${plannerResp.status}`);
+    parseData(await plannerResp.json());
+    if (transportResp.ok) parseTransportData(await transportResp.json());
 
     document.getElementById('loading').style.display = 'none';
     ['toolbar','canvas-wrap','summary-panel','zoom-indicator']
@@ -3742,8 +4398,10 @@ async function init() {
       if (!confirm('Clear all nodes and edges?')) return;
       appState.nodes = {};
       appState.edges = {};
+      appState.groups = {};
       _nodeCounter = 0;
       _edgeCounter = 0;
+      _groupCounter = 0;
       render();
     });
 
@@ -3766,6 +4424,15 @@ async function init() {
 
     document.getElementById('sum-collapse').addEventListener('click', collapseSummary);
     summaryTab.addEventListener('click', expandSummary);
+
+    // Summary tab switching
+    document.getElementById('sum-tabs').addEventListener('click', (e) => {
+      const tab = e.target.closest('.sum-tab');
+      if (!tab) return;
+      _activeSumTab = tab.dataset.tab;
+      document.querySelectorAll('#sum-tabs .sum-tab').forEach(t => t.classList.toggle('active', t.dataset.tab === _activeSumTab));
+      document.querySelectorAll('#sum-body .sum-tab-pane').forEach(p => p.classList.toggle('active', p.dataset.pane === _activeSumTab));
+    });
 
     // Start expanded on desktop, collapsed on mobile
     if (window.matchMedia('(max-width: 768px)').matches) {

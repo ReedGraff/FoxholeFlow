@@ -1,0 +1,404 @@
+{
+  "version": 1,
+  "profiles": {
+    "truck_standard": {
+      "name": "Standard Truck",
+      "category": "ground",
+      "buildingKeys": ["truckc", "truckw"],
+      "capacity": 15,
+      "unit": "items",
+      "validItems": "all_solid"
+    },
+    "truck_mobility": {
+      "name": "Mobility Truck",
+      "category": "ground",
+      "buildingKeys": ["truckmobilityc", "truckmobilityw"],
+      "capacity": 14,
+      "unit": "items",
+      "validItems": "all_solid"
+    },
+    "truck_defensive": {
+      "name": "Defensive Truck",
+      "category": "ground",
+      "buildingKeys": ["truckdefensivew"],
+      "capacity": 14,
+      "unit": "items",
+      "validItems": "all_solid"
+    },
+    "truck_offensive": {
+      "name": "Offensive Truck",
+      "category": "ground",
+      "buildingKeys": ["truckoffensivec"],
+      "capacity": 15,
+      "unit": "items",
+      "validItems": "all_solid"
+    },
+    "truck_resource": {
+      "name": "Resource Truck",
+      "category": "ground",
+      "buildingKeys": ["truckdumpc", "truckdumpw"],
+      "capacity": 20,
+      "unit": "items",
+      "validItems": ["metal", "sulfur", "components", "aluminum", "copper", "iron", "coal", "facilitycoal1", "facilitycomponents1", "raremetal", "explosive", "heavyexplosive", "groundmaterials"]
+    },
+    "truck_heavy": {
+      "name": "Heavy Truck",
+      "category": "ground",
+      "buildingKeys": ["heavytruckc", "heavytruckw"],
+      "capacity": 15,
+      "unit": "items",
+      "validItems": "all_solid"
+    },
+    "flatbed_resource_container": {
+      "name": "Flatbed + Resource Container",
+      "category": "ground",
+      "buildingKeys": ["flatbedtruck"],
+      "containerKey": "resourcecontainer",
+      "capacity": 5000,
+      "unit": "materials",
+      "validItems": ["metal", "sulfur", "components", "aluminum", "copper", "iron", "coal", "facilitycoal1", "facilitycomponents1", "raremetal", "explosive", "heavyexplosive", "groundmaterials"]
+    },
+    "flatbed_material_pallet": {
+      "name": "Flatbed + Material Pallet",
+      "category": "ground",
+      "buildingKeys": ["flatbedtruck"],
+      "containerKey": "materialplatform",
+      "capacity": 120,
+      "unit": "materials",
+      "validItems": [
+        "facilitymaterials1", "facilitymaterials2", "facilitymaterials3", "facilitymaterials4",
+        "facilitymaterials5", "facilitymaterials6", "facilitymaterials7", "facilitymaterials8",
+        "facilitymaterials9", "facilitymaterials10", "facilitymaterials11",
+        "pipematerials", "metalbeammaterials", "sandbagmaterials", "barbedwirematerials",
+        "battletankammo", "atlargeammo", "herocketammo", "firerocketammo", "flameammo",
+        "lightartilleryammo", "heavyartilleryammo", "lrartilleryammo",
+        "tripod", "mgtc", "mgtw", "atrpgtw", "rpgtw", "isgtc", "atrifletc",
+        "mortartankammo", "grenadelaunchertc", "concrete",
+        "watermine", "surfacewatermine", "depthchargeammo", "torpedoammo",
+        "tankmine", "infantrymine", "windsockt", "listeningkit",
+        "bannertc", "bannertw", "mortartankammobr", "demolitionrocketammo",
+        "aircraftpartlargeenginew", "aircraftpartlargeenginec",
+        "aircraftpartlargemechanicalc", "aircraftpartlargemechanicalw",
+        "aircraftpartlargeenginewreckedc", "aircraftpartlargeenginewreckedw",
+        "aircraftpartlargemechanicalwreckedc", "aircraftpartlargemechanicalwreckedw",
+        "aircraftpartsmallenginec", "aircraftpartsmallenginew",
+        "aircraftpartsmallmechanicalw", "aircraftpartsmallmechanicalc",
+        "aircraftpartsmallenginewreckedc", "aircraftpartsmallenginewreckedw",
+        "aircraftpartsmallmechanicalwreckedw", "aircraftpartsmallmechanicalwreckedc",
+        "bomberammo", "aaammo", "divebomberammo", "aircraftammo", "minitorpedoammo"
+      ],
+      "itemLimits": {
+        "flameammo": 60, "herocketammo": 60, "atlargeammo": 60,
+        "battletankammo": 60, "firerocketammo": 60, "mortartankammo": 60,
+        "watermine": 60, "torpedoammo": 5, "tankmine": 60, "listeningkit": 60,
+        "mortartankammobr": 60, "demolitionrocketammo": 60,
+        "aircraftpartlargeenginew": 1, "aircraftpartlargeenginec": 1,
+        "aircraftpartlargemechanicalc": 2, "aircraftpartlargemechanicalw": 2,
+        "aircraftpartlargeenginewreckedc": 1, "aircraftpartlargeenginewreckedw": 1,
+        "aircraftpartlargemechanicalwreckedc": 2, "aircraftpartlargemechanicalwreckedw": 2,
+        "aircraftpartsmallenginec": 1, "aircraftpartsmallenginew": 1,
+        "aircraftpartsmallmechanicalw": 2, "aircraftpartsmallmechanicalc": 2,
+        "aircraftpartsmallenginewreckedc": 1, "aircraftpartsmallenginewreckedw": 1,
+        "aircraftpartsmallmechanicalwreckedw": 2, "aircraftpartsmallmechanicalwreckedc": 2,
+        "bomberammo": 60, "aaammo": 60, "surfacewatermine": 60,
+        "divebomberammo": 60, "minitorpedoammo": 60
+      }
+    },
+    "flatbed_liquid_container": {
+      "name": "Flatbed + Liquid Container",
+      "category": "ground",
+      "buildingKeys": ["flatbedtruck"],
+      "containerKey": "fuel_container",
+      "capacity": 100,
+      "unit": "liquids",
+      "liquidOnly": true,
+      "validItems": ["diesel", "water", "facilityoil1", "facilityoil2", "oil", "petrol"]
+    },
+    "oil_tanker": {
+      "name": "Oil Tanker",
+      "category": "ground",
+      "buildingKeys": ["oiltankerc", "oiltankerw"],
+      "capacity": 100,
+      "unit": "liquids",
+      "liquidOnly": true,
+      "validItems": ["diesel", "water", "facilityoil1", "facilityoil2", "oil", "petrol"]
+    },
+    "fuel_trailer": {
+      "name": "Fuel Trailer (Lamploader)",
+      "category": "ground",
+      "buildingKeys": ["fueltrailer"],
+      "capacity": 25,
+      "unit": "liquids",
+      "liquidOnly": true,
+      "validItems": ["water", "diesel", "facilityoil1", "facilityoil2", "oil", "petrol"]
+    },
+    "resource_trailer": {
+      "name": "Resource Trailer (Junkwagon)",
+      "category": "ground",
+      "buildingKeys": ["resourcetrailer"],
+      "capacity": 7,
+      "unit": "items",
+      "validItems": ["metal", "sulfur", "components", "aluminum", "copper", "iron", "coal", "facilitycoal1", "facilitycomponents1", "raremetal"]
+    },
+    "material_trailer": {
+      "name": "Material Trailer (Tumblebox)",
+      "category": "ground",
+      "buildingKeys": ["materialtrailer"],
+      "capacity": 32,
+      "unit": "materials",
+      "validItems": [
+        "facilitymaterials1", "facilitymaterials2", "facilitymaterials3", "facilitymaterials4",
+        "facilitymaterials5", "facilitymaterials6", "facilitymaterials7", "facilitymaterials8",
+        "facilitymaterials9", "facilitymaterials10", "facilitymaterials11",
+        "pipematerials", "metalbeammaterials", "sandbagmaterials", "barbedwirematerials",
+        "battletankammo", "atlargeammo", "herocketammo", "firerocketammo", "flameammo",
+        "lightartilleryammo", "heavyartilleryammo", "lrartilleryammo",
+        "concrete", "mortartankammo", "torpedoammo",
+        "bomberammo", "aaammo", "divebomberammo", "aircraftammo", "minitorpedoammo"
+      ]
+    },
+
+    "small_train_dump": {
+      "name": "Small Train (Dump Cars)",
+      "category": "small_train",
+      "buildingKeys": ["smalltrainengine", "smalltraindump"],
+      "multiCar": true,
+      "defaultCars": 4,
+      "maxCars": 4,
+      "perCarCapacity": 25,
+      "unit": "items",
+      "validItems": ["metal", "sulfur", "components", "aluminum", "copper", "iron", "coal", "facilitycoal1", "facilitycomponents1", "raremetal", "explosive", "heavyexplosive", "groundmaterials"]
+    },
+    "small_train_resource": {
+      "name": "Small Train (Linerunner)",
+      "category": "small_train",
+      "buildingKeys": ["smalltrainengine", "smalltrainresourceplatform"],
+      "multiCar": true,
+      "defaultCars": 4,
+      "maxCars": 4,
+      "perCarCapacity": 100,
+      "unit": "materials",
+      "validItems": [
+        "facilitymaterials1", "facilitymaterials2", "facilitymaterials3", "facilitymaterials4",
+        "facilitymaterials5", "facilitymaterials6", "facilitymaterials7", "facilitymaterials8",
+        "facilitymaterials9", "facilitymaterials10", "facilitymaterials11",
+        "pipematerials", "metalbeammaterials", "sandbagmaterials", "barbedwirematerials",
+        "battletankammo", "atlargeammo", "herocketammo", "firerocketammo", "flameammo",
+        "lightartilleryammo", "heavyartilleryammo", "lrartilleryammo",
+        "tripod", "mgtc", "mgtw", "atrpgtw", "rpgtw", "isgtc", "atrifletc",
+        "mortartankammo", "grenadelaunchertc", "concrete",
+        "watermine", "surfacewatermine", "depthchargeammo", "torpedoammo",
+        "tankmine", "infantrymine", "windsockt", "listeningkit",
+        "bannertc", "bannertw", "mortartankammobr", "demolitionrocketammo",
+        "aircraftpartlargeenginew", "aircraftpartlargeenginec",
+        "aircraftpartlargemechanicalc", "aircraftpartlargemechanicalw",
+        "bomberammo", "aaammo", "divebomberammo", "aircraftammo", "minitorpedoammo"
+      ],
+      "itemLimits": {
+        "flameammo": 50, "firerocketammo": 50, "herocketammo": 50,
+        "battletankammo": 50, "atlargeammo": 50, "mortartankammo": 50,
+        "watermine": 50, "torpedoammo": 2, "tankmine": 50, "listeningkit": 50,
+        "mortartankammobr": 50, "demolitionrocketammo": 50,
+        "aircraftpartlargeenginew": 1, "aircraftpartlargeenginec": 1,
+        "aircraftpartlargemechanicalc": 2, "aircraftpartlargemechanicalw": 2,
+        "bomberammo": 50, "aaammo": 50, "surfacewatermine": 50,
+        "divebomberammo": 50, "minitorpedoammo": 50
+      }
+    },
+    "small_train_fuel": {
+      "name": "Small Train (Tinderbox)",
+      "category": "small_train",
+      "buildingKeys": ["smalltrainengine", "smalltrainfuelcontainer"],
+      "multiCar": true,
+      "defaultCars": 4,
+      "maxCars": 4,
+      "perCarCapacity": 50,
+      "unit": "liquids",
+      "liquidOnly": true,
+      "validItems": ["water", "diesel", "facilityoil1", "facilityoil2", "oil", "petrol"]
+    },
+    "small_train_boxcar": {
+      "name": "Small Train (Stowheel)",
+      "category": "small_train",
+      "buildingKeys": ["smalltrainengine", "smalltrainshipping"],
+      "multiCar": true,
+      "defaultCars": 4,
+      "maxCars": 4,
+      "perCarCapacity": 15,
+      "unit": "items",
+      "validItems": "all_solid"
+    },
+
+    "large_train_rc": {
+      "name": "Large Train + Resource Containers",
+      "category": "large_train",
+      "buildingKeys": ["trainengine", "trainflatbed", "traincoal"],
+      "containerKey": "resourcecontainer",
+      "multiCar": true,
+      "defaultCars": 12,
+      "maxCars": 15,
+      "perCarCapacity": 5000,
+      "unit": "materials",
+      "validItems": ["metal", "sulfur", "components", "aluminum", "copper", "iron", "coal", "facilitycoal1", "facilitycomponents1", "raremetal", "explosive", "heavyexplosive", "groundmaterials"]
+    },
+    "large_train_mp": {
+      "name": "Large Train + Material Pallets",
+      "category": "large_train",
+      "buildingKeys": ["trainengine", "trainflatbed", "traincoal"],
+      "containerKey": "materialplatform",
+      "multiCar": true,
+      "defaultCars": 12,
+      "maxCars": 15,
+      "perCarCapacity": 120,
+      "unit": "materials",
+      "validItems": [
+        "facilitymaterials1", "facilitymaterials2", "facilitymaterials3", "facilitymaterials4",
+        "facilitymaterials5", "facilitymaterials6", "facilitymaterials7", "facilitymaterials8",
+        "facilitymaterials9", "facilitymaterials10", "facilitymaterials11",
+        "pipematerials", "metalbeammaterials", "sandbagmaterials", "barbedwirematerials",
+        "battletankammo", "atlargeammo", "herocketammo", "firerocketammo", "flameammo",
+        "lightartilleryammo", "heavyartilleryammo", "lrartilleryammo",
+        "tripod", "mgtc", "mgtw", "atrpgtw", "rpgtw", "isgtc", "atrifletc",
+        "mortartankammo", "grenadelaunchertc", "concrete",
+        "watermine", "surfacewatermine", "depthchargeammo", "torpedoammo",
+        "tankmine", "infantrymine", "windsockt", "listeningkit",
+        "bannertc", "bannertw", "mortartankammobr", "demolitionrocketammo",
+        "aircraftpartlargeenginew", "aircraftpartlargeenginec",
+        "aircraftpartlargemechanicalc", "aircraftpartlargemechanicalw",
+        "bomberammo", "aaammo", "divebomberammo", "aircraftammo", "minitorpedoammo"
+      ],
+      "itemLimits": {
+        "flameammo": 60, "herocketammo": 60, "atlargeammo": 60,
+        "battletankammo": 60, "firerocketammo": 60, "mortartankammo": 60,
+        "watermine": 60, "torpedoammo": 5, "tankmine": 60, "listeningkit": 60,
+        "mortartankammobr": 60, "demolitionrocketammo": 60,
+        "aircraftpartlargeenginew": 1, "aircraftpartlargeenginec": 1,
+        "aircraftpartlargemechanicalc": 2, "aircraftpartlargemechanicalw": 2,
+        "bomberammo": 60, "aaammo": 60, "surfacewatermine": 60,
+        "divebomberammo": 60, "minitorpedoammo": 60
+      }
+    },
+    "large_train_lc": {
+      "name": "Large Train + Liquid Containers",
+      "category": "large_train",
+      "buildingKeys": ["trainengine", "trainflatbed", "traincoal"],
+      "containerKey": "fuel_container",
+      "multiCar": true,
+      "defaultCars": 12,
+      "maxCars": 15,
+      "perCarCapacity": 100,
+      "unit": "liquids",
+      "liquidOnly": true,
+      "validItems": ["diesel", "water", "facilityoil1", "facilityoil2", "oil", "petrol"]
+    },
+    "large_train_infantry": {
+      "name": "Large Train (Infantry Cars)",
+      "category": "large_train",
+      "buildingKeys": ["trainengine", "traininfantry", "traincoal"],
+      "multiCar": true,
+      "defaultCars": 12,
+      "maxCars": 15,
+      "perCarCapacity": 16,
+      "unit": "items",
+      "validItems": "all_solid"
+    },
+    "large_train_hospital": {
+      "name": "Large Train (Hospital Cars)",
+      "category": "large_train",
+      "buildingKeys": ["trainengine", "trainhospital", "traincoal"],
+      "multiCar": true,
+      "defaultCars": 12,
+      "maxCars": 15,
+      "perCarCapacity": 20,
+      "unit": "items",
+      "validItems": "all_solid"
+    },
+
+    "motorboat": {
+      "name": "Motorboat (Grouper)",
+      "category": "naval",
+      "buildingKeys": ["motorboat"],
+      "capacity": 2,
+      "unit": "items",
+      "validItems": "all_solid"
+    },
+    "barge": {
+      "name": "Barge (Aquatipper)",
+      "category": "naval",
+      "buildingKeys": ["barge"],
+      "capacity": 15,
+      "unit": "items",
+      "validItems": "all_solid"
+    },
+    "freighter": {
+      "name": "Freighter (Ironship)",
+      "category": "naval",
+      "buildingKeys": ["freighter"],
+      "capacity": 10,
+      "unit": "items",
+      "validItems": "all_solid"
+    },
+    "freighter_light": {
+      "name": "Light Freighter (Das Krokodil)",
+      "category": "naval",
+      "buildingKeys": ["freighterlight"],
+      "capacity": 2,
+      "unit": "items",
+      "validItems": "all_solid"
+    },
+    "landing_craft_c": {
+      "name": "Landing Craft (Colonial)",
+      "category": "naval",
+      "buildingKeys": ["landingcraftc", "landingcraftoffensivec"],
+      "capacity": 6,
+      "unit": "items",
+      "validItems": "all_solid"
+    },
+    "landing_craft_w": {
+      "name": "Landing Craft (Warden)",
+      "category": "naval",
+      "buildingKeys": ["landingcraftw"],
+      "capacity": 6,
+      "unit": "items",
+      "validItems": "all_solid"
+    },
+    "landing_ship_c": {
+      "name": "Landing Ship (Colonial)",
+      "category": "naval",
+      "buildingKeys": ["landingshipc"],
+      "capacity": 6,
+      "unit": "items",
+      "validItems": "all_solid"
+    },
+    "landing_ship_w": {
+      "name": "Landing Ship (Warden)",
+      "category": "naval",
+      "buildingKeys": ["landingshipw"],
+      "capacity": 6,
+      "unit": "items",
+      "validItems": "all_solid"
+    },
+    "resource_ship": {
+      "name": "Resource Ship (Bowhead)",
+      "category": "naval",
+      "buildingKeys": ["largeshipresourceship"],
+      "capacity": 15,
+      "unit": "items",
+      "validItems": "all_solid"
+    },
+    "storage_ship": {
+      "name": "Storage Ship (Bluefin)",
+      "category": "naval",
+      "buildingKeys": ["largeshipstorageship"],
+      "capacity": 15,
+      "unit": "items",
+      "validItems": "all_solid"
+    }
+  },
+  "categories": {
+    "ground": { "name": "Ground Vehicles", "order": 0 },
+    "small_train": { "name": "Small Gauge Train", "order": 1 },
+    "large_train": { "name": "Large Gauge Train", "order": 2 },
+    "naval": { "name": "Naval", "order": 3 }
+  }
+}
